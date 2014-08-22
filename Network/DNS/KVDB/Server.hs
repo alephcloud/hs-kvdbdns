@@ -43,7 +43,7 @@ data ServerConf = ServerConf
   { bufSize :: Int -- ^ the maximum size accpeted per request
   , timeOut :: Int -- ^ timeout for sending/receiving
   , query   :: ByteString -> IO (Maybe ByteString) -- ^ the method to perform a request
-  , inFail  :: DNSFormat  -> IO (Maybe DNSFormat)  -- ^ if query fail, use this method instead
+  , inFail  :: DNSFormat  -> IO (Maybe DNSFormat)  -- ^ the method to use to handle query failure
   }
 
 -- Default
@@ -101,7 +101,7 @@ proxy rc t req = do
 
 -- Handle a request:
 -- try the query function given in the ServerConf
--- if it failes, then call the given proxy
+-- if it fails, then call the given proxy
 handleRequest :: ServerConf -> DNSFormat -> IO (Maybe DNSFormat)
 handleRequest conf req =
   case listToMaybe . filterTXT . question $ req of
@@ -112,7 +112,6 @@ handleRequest conf req =
            Nothing  -> inFail conf req
     Nothing -> inFail conf req
   where
-    -- TODO: maybe we don't want to only apply the query method to TXT query
     filterTXT = filter ((==TXT) . qtype)
     ident = identifier . header $ req
 
@@ -120,7 +119,7 @@ handleRequest conf req =
     responseTXT ident q txt =
       let hd = header defaultResponse
           dom = qname q
-          an = ResourceRecord dom TXT 300 (1 + (S.length txt)) (RD_TXT txt)
+          an = ResourceRecord dom TXT 1 (S.length txt) (RD_TXT txt)
       in  defaultResponse
             { header = hd { identifier = ident, qdCount = 1, anCount = 1 }
             , question = [q]
@@ -169,8 +168,8 @@ handleRequest conf req =
 
 -- | handle a DNS query
 handleQuery :: ServerConf
-            -> Socket     -- ^ the socket, will be needed to send the hanswer to the addr
-            -> SockAddr   -- ^ the sockaddr to send the answer
+            -> Socket     -- ^ Should be a Datagram socket
+            -> SockAddr   -- ^ the sender addr
             -> ByteString -- ^ the query
             -> IO ()
 handleQuery conf sock addr bs =
@@ -184,7 +183,7 @@ handleQuery conf sock addr bs =
             in  void $ timeout (3 * 1000 * 1000) (sendAllTo sock packet addr)
         Nothing -> return ()
 
--- | a default server: handle query for ever
+-- | a default server: handle queries for ever
 defaultServer :: ServerConf -> Socket -> IO ()
 defaultServer conf sock =
   forever $ do
