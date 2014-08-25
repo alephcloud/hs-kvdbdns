@@ -55,6 +55,8 @@ Executable           Server
     build-depends:       base >=4.7 && <4.8
                        , hs-kvdbdns-dns
                        , network
+                       , dns
+                       , bytestring
                        , data-default
     Buildable: True
   else

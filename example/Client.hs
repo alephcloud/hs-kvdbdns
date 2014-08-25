@@ -18,8 +18,11 @@ main = do
   name <- getProgName
   case args of
     [k, d] -> do
-      list <- sendQueryDefault $ Dummy d k
+      let dom = Dummy d k
+      putStrLn $ show $ encode dom
+      list <- sendQueryDefault dom
       case list of
         Left err -> error $ show err
-        Right l  -> mapM_ print l
+        Right l  -> do print l
+                       mapM_ print l
     _ -> putStrLn $ "usage: " ++ name ++ " <key> <domain>"

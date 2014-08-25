@@ -7,15 +7,14 @@
 -- Stability   : experimental
 -- Portability : unknown
 --
-{-# LANGUAGE RecordWildCards, OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Network.DNS.KVDB.Server
-  ( handleQuery
-  , defaultServer
+  ( ServerConf(..)
+  , handleQuery
   ) where
 
 import Control.Applicative ((<$>))
-import Control.Concurrent  (forkIO)
-import Control.Monad       (void, forever)
+import Control.Monad (void)
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString      as S
@@ -40,25 +39,16 @@ import System.Timeout
 
 -- | Server configuration
 data ServerConf = ServerConf
-  { bufSize :: Int -- ^ the maximum size accpeted per request
-  , timeOut :: Int -- ^ timeout for sending/receiving
-  , query   :: ByteString -> IO (Maybe ByteString) -- ^ the method to perform a request
-  , inFail  :: DNSFormat  -> IO (Maybe DNSFormat)  -- ^ the method to use to handle query failure
+  { query   :: ByteString -> IO (Maybe ByteString) -- ^ the method to perform a request
+  , inFail  :: DNSFormat  -> IO (Either String DNSFormat) -- ^ the method to use to handle query failure
   }
 
 -- Default
 instance Default ServerConf where
-    def = ServerConf {
-        bufSize = 512
-      , timeOut = defaultTimeOut
-      , query   = queryJustEcho
-      , inFail  = proxy defaultResolvConf defaultTimeOut
-    }
-      where
-        defaultTimeOut :: Int
-        defaultTimeOut = 3 * 1000 * 1000
-        defaultResolvConfiguration :: ResolvConf
-        defaultResolvConfiguration = defaultResolvConf { resolvInfo = RCHostName "8.8.8.8" }
+    def = ServerConf
+      { query   = queryJustEcho
+      , inFail  = inFailUndefined
+      }
 
 -- | Default implementation of a query
 -- it returns the received key (expecting a Dummy query)
@@ -70,30 +60,9 @@ queryJustEcho req = return $ Just $ S.pack $ funFromString $ KVDB.key request
     funFromString :: [Char] -> [Word8]
     funFromString = map (fromIntegral.ord)
 
--- | default proxy
---
--- if a query failed, then this method will forward the query to the 
--- real DNS realm
-proxy :: ResolvConf
-      -> Int
-      -> DNSFormat  -- ^ the request
-      -> IO (Maybe DNSFormat)
-proxy rc t req = do
-  let worker Resolver{..} = do
-        let packet = mconcat . SL.toChunks $ encode req
-        sendAll dnsSock packet
-        receive dnsSock
-  rs <- makeResolvSeed rc
-  withResolver rs $ \r ->
-      (>>= check) <$> timeout t (worker r)
-  where
-    ident = identifier . header $ req
-
-    check :: DNSFormat -> Maybe DNSFormat
-    check rsp = let hdr = header rsp
-                in  if identifier hdr == ident
-                        then Just rsp
-                        else Nothing
+-- | Default implementation of an inFail
+inFailUndefined :: DNSFormat -> IO (Either String DNSFormat)
+inFailUndefined _ = return $ Left "command undefined"
 
 ------------------------------------------------------------------------------
 --                         The main function                                --
@@ -102,24 +71,30 @@ proxy rc t req = do
 -- Handle a request:
 -- try the query function given in the ServerConf
 -- if it fails, then call the given proxy
-handleRequest :: ServerConf -> DNSFormat -> IO (Maybe DNSFormat)
+handleRequest :: ServerConf -> DNSFormat -> IO (Either String ByteString)
 handleRequest conf req =
   case listToMaybe . filterTXT . question $ req of
     Just q -> do
         mres <- query conf $ qname q
         case mres of
-           Just txt -> return $ Just $ responseTXT ident q txt
-           Nothing  -> inFail conf req
-    Nothing -> inFail conf req
+           Just txt -> return $ Right $ mconcat . SL.toChunks $ encode $ responseTXT q txt
+           Nothing  -> inFail conf req >>= return.inFailWrapper
+    Nothing -> inFail conf req >>= return.inFailWrapper
   where
     filterTXT = filter ((==TXT) . qtype)
+
+    ident :: Int
     ident = identifier . header $ req
 
-    responseTXT :: Int -> Question -> ByteString -> DNSFormat
-    responseTXT ident q txt =
+    inFailWrapper :: Either String DNSFormat -> Either String ByteString
+    inFailWrapper (Right r) = Right $ mconcat . SL.toChunks $ encode r
+    inFailWrapper (Left er) = Left er
+
+    responseTXT :: Question -> ByteString -> DNSFormat
+    responseTXT q txt =
       let hd = header defaultResponse
           dom = qname q
-          an = ResourceRecord dom TXT 1 (S.length txt) (RD_TXT txt)
+          an = ResourceRecord dom TXT 0 (S.length txt) (RD_TXT txt)
       in  defaultResponse
             { header = hd { identifier = ident, qdCount = 1, anCount = 1 }
             , question = [q]
@@ -168,24 +143,9 @@ handleRequest conf req =
 
 -- | handle a DNS query
 handleQuery :: ServerConf
-            -> Socket     -- ^ Should be a Datagram socket
-            -> SockAddr   -- ^ the sender addr
             -> ByteString -- ^ the query
-            -> IO ()
-handleQuery conf sock addr bs =
+            -> IO (Either String ByteString)
+handleQuery conf bs =
   case decode (SL.fromChunks [bs]) of
-    Left msg -> putStrLn msg
-    Right req -> do
-      mrsp <- handleRequest conf req
-      case mrsp of
-        Just rsp ->
-            let packet = mconcat . SL.toChunks $ encode rsp
-            in  void $ timeout (3 * 1000 * 1000) (sendAllTo sock packet addr)
-        Nothing -> return ()
-
--- | a default server: handle queries for ever
-defaultServer :: ServerConf -> Socket -> IO ()
-defaultServer conf sock =
-  forever $ do
-    (bs, addr) <- recvFrom sock (bufSize conf)
-    forkIO $ handleQuery conf sock addr bs
+    Left msg  -> return $ Left $ "Query: Error: " ++ msg
+    Right req -> handleRequest conf req

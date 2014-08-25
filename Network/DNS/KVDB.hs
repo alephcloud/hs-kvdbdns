@@ -15,8 +15,8 @@ module Network.DNS.KVDB
   , sendQuery
   , sendQueryDefault
     -- * Server side
+  , ServerConf(..)
   , handleQuery
-  , defaultServer
   ) where
 
 import Network.DNS.KVDB.Types

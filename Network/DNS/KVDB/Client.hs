@@ -25,7 +25,7 @@ sendQuery :: Encodable a
           -> a            -- ^ the key/request
           -> IO (Either DNS.DNSError [DNS.RDATA])
 sendQuery res q
-  | checkEncoding dom = DNS.lookup res dom DNS.TXT 
+  | checkEncoding dom = DNS.lookup res dom DNS.TXT
   | otherwise         = return $ Left DNS.IllegalDomain
   where
     dom :: DNS.Domain
