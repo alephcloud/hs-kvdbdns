@@ -7,31 +7,20 @@
 -- Stability   : experimental
 -- Portability : unknown
 --
-{-# LANGUAGE OverloadedStrings #-}
 module Network.DNS.KVDB.Server
   ( ServerConf(..)
   , handleQuery
   ) where
 
-import Control.Applicative ((<$>))
-import Control.Monad (void)
-
 import Data.ByteString (ByteString)
-import qualified Data.ByteString      as S
+import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as SL (toChunks, fromChunks)
 import Data.Default
 import Data.Maybe  (listToMaybe)
 import Data.Monoid (mconcat)
-import Data.Char   (ord)
-import Data.Word   (Word8)
 
 import Network.DNS hiding (lookup)
 import qualified Network.DNS.KVDB.Types as KVDB
-
-import Network.Socket            (Socket, SockAddr)
-import Network.Socket.ByteString (sendAll, sendAllTo, recvFrom)
-
-import System.Timeout
 
 ------------------------------------------------------------------------------
 --                         Server Configuration                             --
@@ -46,19 +35,13 @@ data ServerConf = ServerConf
 -- Default
 instance Default ServerConf where
     def = ServerConf
-      { query   = queryJustEcho
+      { query   = queryNothing
       , inFail  = inFailUndefined
       }
 
 -- | Default implementation of a query
--- it returns the received key (expecting a Dummy query)
-queryJustEcho :: ByteString -> IO (Maybe ByteString)
-queryJustEcho req = return $ Just $ S.pack $ funFromString $ KVDB.key request
-  where
-    request :: KVDB.Dummy
-    request = KVDB.decode req
-    funFromString :: [Char] -> [Word8]
-    funFromString = map (fromIntegral.ord)
+queryNothing :: ByteString -> IO (Maybe ByteString)
+queryNothing _ = return Nothing
 
 -- | Default implementation of an inFail
 inFailUndefined :: DNSFormat -> IO (Either String DNSFormat)
@@ -67,6 +50,13 @@ inFailUndefined _ = return $ Left "command undefined"
 ------------------------------------------------------------------------------
 --                         The main function                                --
 ------------------------------------------------------------------------------
+
+splitTxt :: ByteString -> [ByteString]
+splitTxt bs
+  | B.length bs < 255 = [bs]
+  | otherwise = node:(splitTxt xs)
+  where
+    (node, xs) = B.splitAt 255 bs
 
 -- Handle a request:
 -- try the query function given in the ServerConf
@@ -77,7 +67,7 @@ handleRequest conf req =
     Just q -> do
         mres <- query conf $ qname q
         case mres of
-           Just txt -> return $ Right $ mconcat . SL.toChunks $ encode $ responseTXT q txt
+           Just txt -> return $ Right $ mconcat . SL.toChunks $ encode $ responseTXT q (splitTxt txt)
            Nothing  -> inFail conf req >>= return.inFailWrapper
     Nothing -> inFail conf req >>= return.inFailWrapper
   where
@@ -90,15 +80,15 @@ handleRequest conf req =
     inFailWrapper (Right r) = Right $ mconcat . SL.toChunks $ encode r
     inFailWrapper (Left er) = Left er
 
-    responseTXT :: Question -> ByteString -> DNSFormat
-    responseTXT q txt =
+    responseTXT :: Question -> [ByteString] -> DNSFormat
+    responseTXT q l =
       let hd = header defaultResponse
           dom = qname q
-          an = ResourceRecord dom TXT 0 (S.length txt) (RD_TXT txt)
+          al = map (\txt -> ResourceRecord dom TXT 0 (B.length txt) (RD_TXT txt)) l
       in  defaultResponse
-            { header = hd { identifier = ident, qdCount = 1, anCount = 1 }
+            { header = hd { identifier = ident, qdCount = 1, anCount = length al }
             , question = [q]
-            , answer = [an]
+            , answer = al
             }
 
     -- imported from dns:Network/DNS/Internal.hs

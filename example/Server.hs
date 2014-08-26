@@ -8,10 +8,16 @@
 -- Portability : unknown
 --
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
 import Data.Default (def)
 import Data.Maybe
+import Data.Char (ord)
 import Data.Monoid (mconcat)
 import qualified Data.ByteString.Lazy as SL (toChunks)
+import Data.ByteString (ByteString)
+import qualified Data.ByteString      as S
+import Data.Map (Map)
+import qualified Data.Map as Map
 
 import Control.Monad (forever, void)
 import Control.Concurrent (forkIO)
@@ -19,6 +25,7 @@ import Control.Applicative ((<$>))
 
 import Network.DNS hiding (lookup)
 import Network.DNS.KVDB.Server
+import qualified Network.DNS.KVDB.Types as KVDB
 import Network.Socket hiding (recvFrom)
 import Network.Socket.ByteString (sendAll, sendAllTo, recvFrom)
 
@@ -40,7 +47,6 @@ defaultServer :: ServerConf -> Socket -> IO ()
 defaultServer conf sock =
   forever $ do
     (bs, addr) <- recvFrom sock 512
-    putStrLn $ show addr
     forkIO $ do
        eResp <- handleQuery conf bs
        case eResp of
@@ -79,13 +85,43 @@ main = do
   args <- getArgs
   name <- getProgName
   case args of
-    [] -> do sock <- getDefaultSocket
-             defaultServer serverConf sock
-    _ -> putStrLn $ "usage: " ++ name
+    [dom] -> do sock <- getDefaultSocket
+                defaultServer (serverConf dom) sock
+    _ -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
   where
-    serverConf :: ServerConf
-    serverConf =
+    serverConf :: String -> ServerConf
+    serverConf dom =
       def { inFail = proxy defaultResolvConfiguration
+          , query  = queryJustEcho (byteStringFromString dom)
           }
     defaultResolvConfiguration :: ResolvConf
     defaultResolvConfiguration = defaultResolvConf { resolvInfo = RCHostName "8.8.8.8" }
+
+    byteStringFromString :: [Char] -> ByteString
+    byteStringFromString s = S.pack $ map (fromIntegral.ord) s
+
+------------------------------------------------------------------------------
+--                          KVDB: queries handling                          --
+------------------------------------------------------------------------------
+
+type KeyMap = Map ByteString ByteString
+
+exampleOfDB :: KeyMap
+exampleOfDB = Map.fromList exampleDB
+
+exampleDB :: [(ByteString, ByteString)]
+exampleDB =
+  [ ("short", "a simple key")
+  , ("linux", "best kernel ever! <3")
+  , ("haskell", "Haskell is an advanced purely-functional programming language. An open-source product of more than twenty years of cutting-edge research, it allows rapid development of robust, concise, correct software. With strong support for integration with other languages, built-in concurrency and parallelism, debuggers, profilers, rich libraries and an active community, Haskell makes it easier to produce flexible, maintainable, high-quality software.")
+  ]
+-- | Default implementation of a query
+-- it returns the received key (expecting a Dummy query)
+queryJustEcho :: ByteString -> ByteString -> IO (Maybe ByteString)
+queryJustEcho dom req = do
+  return $ Map.lookup (KVDB.key request) exampleOfDB
+  where
+    request :: KVDB.Dummy
+    request = KVDB.decode encodedKey
+    encodedKey :: ByteString
+    encodedKey = S.take (S.length req - S.length dom - 1) req

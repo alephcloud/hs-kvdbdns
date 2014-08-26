@@ -14,10 +14,9 @@ module Network.DNS.KVDB.Types
   , Dummy(..)
   ) where
 
-import Data.Char (ord, chr)
-import Data.Word (Word8)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Base32 as BSB32
 
 import Data.List (intercalate)
 
@@ -25,33 +24,43 @@ class Encodable a where
   encode :: a -> ByteString
   decode :: ByteString -> a
 
-instance Encodable ByteString where
-  encode = id
-  decode = id
-
-instance Encodable String where
-  encode = B.pack.map (fromIntegral.ord)
-  decode = map (chr.fromIntegral) . B.unpack
-
--- | This is an example about what can be done
 data Dummy = Dummy
-  { domainServer :: String
-  , key          :: String
-  }
+  { domain :: ByteString
+  , key    :: ByteString
+  } deriving (Show, Eq)
 
 instance Encodable Dummy where
-  encode (Dummy d k) = encode $ k ++ "." ++ d
-  decode s =
-    Dummy
-      (intercalate "." d)
-      (intercalate "." k)
+  encode req = B.intercalate (B.pack [0x2E]) [encode k, d]
     where
-      nodes  = map (funToString.B.unpack) $ B.split dot s
-      size   = length nodes
-      (k, d) = splitAt (size - 3) nodes
+      d :: ByteString
+      d = domain req
+      k :: ByteString
+      k = key req
+  decode bs = Dummy B.empty (decode bs)
 
-      dot :: Word8
-      dot = fromIntegral $ ord '.'
+instance Encodable ByteString where
+  encode = encodeURL
+  decode = decodeURL
 
-      funToString :: [Word8] -> [Char]
-      funToString = map (chr.fromIntegral)
+encodeURL :: ByteString -> ByteString
+encodeURL bs
+  | guessedLength > 200 = error "bytestring too long"
+  | otherwise = B.intercalate (B.pack [0x2E]) $ splitByNode e
+  where
+    e :: ByteString
+    e = BSB32.encode bs
+    guessedLength :: Int
+    guessedLength = BSB32.guessEncodedLength $ B.length bs
+
+    splitByNode :: ByteString -> [ByteString]
+    splitByNode bs
+      | B.length bs < 63 = [bs]
+      | otherwise = node:(splitByNode xs)
+      where
+        (node, xs) = B.splitAt 62 bs
+
+decodeURL :: ByteString -> ByteString
+decodeURL bs = BSB32.decode fusion
+  where
+    fusion :: ByteString
+    fusion = B.concat $ B.split 0x2E bs

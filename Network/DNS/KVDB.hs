@@ -7,7 +7,6 @@
 -- Stability   : experimental
 -- Portability : unknown
 --
-{-# LANGUAGE OverloadedStrings #-}
 module Network.DNS.KVDB
   ( -- * Class
     Encodable(..)
