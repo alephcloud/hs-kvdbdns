@@ -28,6 +28,7 @@ library
                      , Data.String.Base32
                      , Data.ByteString.Base32
   build-depends:       base >=4.7 && <4.8
+                     , network
                      , dns
                      , bytestring
                      , data-default

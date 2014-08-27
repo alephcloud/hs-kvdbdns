@@ -8,9 +8,19 @@
 -- Portability : unknown
 --
 module Network.DNS.KVDB.Server
-  ( ServerConf(..)
+  ( -- * Helpers
+    ServerConf(..)
   , handleQuery
+    -- * defaultServer
+  , KVDBDNSConnection
+  , getDefaultSockets
+  , defaultListener
+  , defaultServer
   ) where
+
+import Control.Monad (forever, void)
+import System.Timeout
+import Control.Concurrent (forkIO)
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString      as B
@@ -21,6 +31,8 @@ import Data.Monoid (mconcat)
 
 import Network.DNS hiding (lookup)
 import qualified Network.DNS.KVDB.Types as KVDB
+import Network.Socket hiding (recvFrom, recv)
+import Network.Socket.ByteString (sendAll, sendAllTo, recvFrom, recv)
 
 ------------------------------------------------------------------------------
 --                         Server Configuration                             --
@@ -36,7 +48,7 @@ data ServerConf = ServerConf
 instance Default ServerConf where
     def = ServerConf
       { query   = queryNothing
-      , inFail  = inFailUndefined
+      , inFail  = inFailError
       }
 
 -- | Default implementation of a query
@@ -44,8 +56,15 @@ queryNothing :: ByteString -> IO (Maybe ByteString)
 queryNothing _ = return Nothing
 
 -- | Default implementation of an inFail
-inFailUndefined :: DNSFormat -> IO (Either String DNSFormat)
-inFailUndefined _ = return $ Left "command undefined"
+inFailError :: DNSFormat -> IO (Either String DNSFormat)
+inFailError req =
+  let hd = header req
+      flg = flags hd
+  in  return $ Right $ req { header = hd { flags = flg { qOrR = QR_Response
+                                                       , rcode = ServFail
+                                                       }
+                                         }
+                           }
 
 ------------------------------------------------------------------------------
 --                         The main function                                --
@@ -139,3 +158,46 @@ handleQuery conf bs =
   case decode (SL.fromChunks [bs]) of
     Left msg  -> return $ Left $ "Query: Error: " ++ msg
     Right req -> handleRequest conf req
+
+------------------------------------------------------------------------------
+--                         Default server: helpers                          --
+------------------------------------------------------------------------------
+
+data KVDBDNSConnection
+    = UDPConnection Socket
+    deriving (Show, Eq)
+
+getDefaultSockets :: IO [KVDBDNSConnection]
+getDefaultSockets = do
+  addrinfos <- getAddrInfo
+                   (Just (defaultHints
+                            { addrFlags = [AI_PASSIVE]
+                            , addrFamily = AF_INET
+                            , addrSocketType = Datagram
+                            }
+                         )
+                   )
+                   Nothing (Just "domain")
+  mapM addrInfoToSocket addrinfos
+  where
+    addrInfoToSocket :: AddrInfo -> IO KVDBDNSConnection
+    addrInfoToSocket addrinfo = do
+      sock <- socket (addrFamily addrinfo) (addrSocketType addrinfo) defaultProtocol
+      bindSocket sock (addrAddress addrinfo)
+      return $ case addrSocketType addrinfo of
+                    Datagram -> UDPConnection sock
+                    _        -> error $ "Socket Type not handle: " ++ (show addrinfo)
+
+-- | a default server: handle queries for ever
+defaultListener :: ServerConf -> KVDBDNSConnection -> IO ()
+defaultListener conf (UDPConnection sock) =
+  forever $ do
+    (bs, addr) <- recvFrom sock 512
+    forkIO $ do
+       eResp <- handleQuery conf bs
+       case eResp of
+         Right bs -> void $ timeout (3 * 1000 * 1000) (sendAllTo sock bs addr)
+         Left err -> putStrLn err
+
+defaultServer :: ServerConf -> IO ()
+defaultServer conf = getDefaultSockets >>= mapM_ (defaultListener conf)
