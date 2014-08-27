@@ -9,7 +9,6 @@
 --
 module EncodeByteString where
 
-import Data.Word (Word8)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Data.ByteString.Base32
@@ -17,10 +16,7 @@ import Data.ByteString.Base32
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
 
-instance Arbitrary ByteString where
-  arbitrary =
-    let genWord8 = arbitrary :: Gen Word8
-    in  listOf genWord8 >>= return . B.pack
+import ArbitraryByteString
 
 ------------------------------------------------------------------------------
 --                             Property checkers                            --

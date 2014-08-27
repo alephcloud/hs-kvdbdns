@@ -11,7 +11,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 module Network.DNS.KVDB.Types
   ( Encodable(..)
-  , Dummy(..)
+  , Request(..)
   ) where
 
 import Data.ByteString (ByteString)
@@ -22,26 +22,44 @@ import Data.List (intercalate)
 
 class Encodable a where
   encode :: a -> ByteString
-  decode :: ByteString -> a
+  decode :: ByteString -> ByteString -> a
 
-data Dummy = Dummy
-  { domain :: ByteString
-  , key    :: ByteString
+-- | Describe a request sent by client:
+-- <param[.param]>.<nonce>.<cmd>.db.net
+data Request = Request
+  { domain :: ByteString -- ^ the targeted domain (the DN server)
+  , cmd    :: ByteString -- ^ the type of request made to the DNS
+  , nonce  :: ByteString -- ^ a nonce use by the server to sign the answer
+  , param  :: ByteString -- ^ the request param
   } deriving (Show, Eq)
 
-instance Encodable Dummy where
-  encode req = B.intercalate (B.pack [0x2E]) [encode k, d]
+instance Encodable Request where
+  encode req = B.intercalate (B.pack [0x2E]) [eparam, enonce, ecmd, edom]
     where
-      d :: ByteString
-      d = domain req
-      k :: ByteString
-      k = key req
-  decode bs = Dummy B.empty (decode bs)
+      edom   = domain req
+      ecmd   = encode $ cmd req
+      enonce = encode $ nonce req
+      eparam = encode $ param req
+  decode dom bs =
+    Request
+      { domain = dom
+      , cmd    = decode dom rCmd
+      , nonce  = decode dom rNonce
+      , param  = decode dom rParam
+      }
+    where
+      paramNonceCmd = B.take (B.length bs - B.length dom - 1) bs
+      (paramNonceDot, rCmd) = B.spanEnd (/= 0x2E) paramNonceCmd
+      paramNonce = B.take (B.length paramNonceDot - 1) paramNonceDot
+      (paramDot, rNonce) = B.spanEnd (/= 0x2E) paramNonce
+      (rParam, _) = B.spanEnd (== 0x0E) paramDot
 
 instance Encodable ByteString where
   encode = encodeURL
-  decode = decodeURL
+  decode _ = decodeURL
 
+-- Encode a bytestring and split it in node of size 63 (or less)
+-- then intercalate the node separator '.'
 encodeURL :: ByteString -> ByteString
 encodeURL bs
   | guessedLength > 200 = error "bytestring too long"
@@ -57,8 +75,11 @@ encodeURL bs
       | B.length bs < 63 = [bs]
       | otherwise = node:(splitByNode xs)
       where
-        (node, xs) = B.splitAt 62 bs
+        (node, xs) = B.splitAt 63 bs
 
+-- Decode an URL:
+-- Split the bytestring into node (split at every '.')
+-- and then decode the result
 decodeURL :: ByteString -> ByteString
 decodeURL bs = BSB32.decode fusion
   where

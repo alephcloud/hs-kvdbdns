@@ -22,12 +22,18 @@ main = do
   args <- getArgs
   name <- getProgName
   case args of
-    [k, d] -> do
-      list <- sendQueryDefault $ Dummy (byteStringFromString d) (byteStringFromString k)
+    [d, c, p] -> do
+      let req = Request
+                  { domain = byteStringFromString d
+                  , cmd = byteStringFromString c
+                  , nonce = B.pack [1..12]
+                  , param = byteStringFromString p
+                  }
+      list <- sendQueryDefault req
       case list of
         Left err -> error $ show err
         Right l  -> print l
-    _ -> putStrLn $ "usage: " ++ name ++ " <key> <domain>"
+    _ -> putStrLn $ "usage: " ++ name ++ " <domain> <echo|db> <param>"
 
 byteStringFromString :: [Char] -> ByteString
 byteStringFromString s = B.pack $ map (fromIntegral.ord) s

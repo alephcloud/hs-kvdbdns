@@ -30,7 +30,7 @@ main = do
     _ -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
   where
     serverConf :: String -> ServerConf
-    serverConf dom = def { query  = queryJustEcho (byteStringFromString dom) }
+    serverConf dom = def { query  = queryDummy (byteStringFromString dom) }
 
     byteStringFromString :: [Char] -> ByteString
     byteStringFromString s = S.pack $ map (fromIntegral.ord) s
@@ -50,13 +50,17 @@ exampleDB =
   , ("linux", "best kernel ever! <3")
   , ("haskell", "Haskell is an advanced purely-functional programming language. An open-source product of more than twenty years of cutting-edge research, it allows rapid development of robust, concise, correct software. With strong support for integration with other languages, built-in concurrency and parallelism, debuggers, profilers, rich libraries and an active community, Haskell makes it easier to produce flexible, maintainable, high-quality software.")
   ]
--- | Default implementation of a query
--- it returns the received key (expecting a Dummy query)
-queryJustEcho :: ByteString -> ByteString -> IO (Maybe ByteString)
-queryJustEcho dom req = do
-  return $ Map.lookup (KVDB.key request) exampleOfDB
+
+-- | example of query manager
+-- handle two commands:
+-- * echo: return $ Just $ "nonce" ++ ';' ++ "param"
+-- * db  : return $ the result of a lookup in the database
+queryDummy :: ByteString -> ByteString -> IO (Maybe ByteString)
+queryDummy dom req =
+  return $ case KVDB.cmd request of
+              "echo" -> Just $ S.concat [KVDB.nonce request, S.pack [0x3B], KVDB.param request]
+              "db"   -> Map.lookup (KVDB.param request) exampleOfDB
+              _      -> Nothing
   where
-    request :: KVDB.Dummy
-    request = KVDB.decode encodedKey
-    encodedKey :: ByteString
-    encodedKey = S.take (S.length req - S.length dom - 1) req
+    request :: KVDB.Request
+    request = KVDB.decode dom req
