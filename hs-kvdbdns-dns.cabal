@@ -29,9 +29,21 @@ library
                      , Data.ByteString.Base32
   build-depends:       base >=4.7 && <4.8
                      , network
-                     , dns
+                     , dns  >= 1.4.4
                      , bytestring
                      , data-default
+  default-language:    Haskell2010
+
+Test-Suite           tests
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      Tests
+  Main-is:             Tests.hs
+  build-depends:       base >=4.7 && <4.8
+                     , bytestring
+                     , QuickCheck >= 2
+                     , test-framework
+                     , test-framework-quickcheck2
+                     , hs-kvdbdns-dns
   default-language:    Haskell2010
 
 Executable           Client
@@ -46,29 +58,16 @@ Executable           Client
   else
     Buildable: False
 
-Test-Suite test
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      Tests
-  Main-is:             Tests.hs
-  build-depends:       base >=4.7 && <4.8
-                     , bytestring
-                     , QuickCheck >= 2
-                     , test-framework
-                     , test-framework-quickcheck2
-                     , hs-kvdbdns-dns
-
 Executable           Server
   Main-Is:           Server.hs
   hs-source-dirs:    example
   default-language:    Haskell2010
   if flag(executable)
     build-depends:       base >=4.7 && <4.8
-                       , hs-kvdbdns-dns
-                       , network
                        , containers
-                       , dns
                        , bytestring
                        , data-default
+                       , hs-kvdbdns-dns
     Buildable: True
   else
     Buildable: False
