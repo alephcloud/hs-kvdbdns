@@ -32,7 +32,8 @@ main = do
       list <- sendQueryDefault req
       case list of
         Left err -> error $ show err
-        Right l  -> print l
+        Right re -> do print $ "nonce == signature ? " ++ (show $ (signature re) == (B.pack [1..12]))
+                       print re
     _ -> putStrLn $ "usage: " ++ name ++ " <domain> <echo|db> <param>"
 
 byteStringFromString :: [Char] -> ByteString

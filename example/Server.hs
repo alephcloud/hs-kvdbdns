@@ -55,12 +55,15 @@ exampleDB =
 -- handle two commands:
 -- * echo: return $ Just $ "nonce" ++ ';' ++ "param"
 -- * db  : return $ the result of a lookup in the database
-queryDummy :: ByteString -> ByteString -> IO (Maybe ByteString)
+queryDummy :: ByteString -> ByteString -> IO (Maybe KVDB.Response)
 queryDummy dom req =
   return $ case KVDB.cmd request of
-              "echo" -> Just $ S.concat [KVDB.nonce request, S.pack [0x3B], KVDB.param request]
-              "db"   -> Map.lookup (KVDB.param request) exampleOfDB
+              "echo" -> Just $ sign (KVDB.nonce request) (KVDB.param request)
+              "db"   -> maybe Nothing (\p -> Just $ sign (KVDB.nonce request) p) $ Map.lookup (KVDB.param request) exampleOfDB
               _      -> Nothing
   where
     request :: KVDB.Request
     request = KVDB.decode dom req
+
+    sign :: ByteString -> ByteString -> KVDB.Response
+    sign n t = KVDB.Response { signature = n, response = t }

@@ -15,17 +15,30 @@ module Network.DNS.KVDB.Client
 import Network.DNS.KVDB.Types
 import Network.DNS.KVDB.Utils
 
-import Data.ByteString.Char8 (ByteString)
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as B
 
 import qualified Network.DNS as DNS
+
+parseQuery :: Either DNS.DNSError [DNS.RDATA]
+           -> Either DNS.DNSError Response
+parseQuery (Left err) = Left err
+parseQuery (Right l)  = Right $ decodeResponse txt
+  where
+    txt :: ByteString
+    txt = B.concat $ map toByteString l
+
+    toByteString :: DNS.RDATA -> ByteString
+    toByteString (DNS.RD_TXT bs) = bs
+    toByteString d               = error $ "unexpected type: " ++ (show d)
 
 -- | Send a TXT query with the given DNS Resolver
 sendQuery :: Encodable a
           => DNS.Resolver
           -> a            -- ^ the key/request
-          -> IO (Either DNS.DNSError [DNS.RDATA])
+          -> IO (Either DNS.DNSError Response)
 sendQuery res q
-  | checkEncoding dom = DNS.lookup res dom DNS.TXT
+  | checkEncoding dom = DNS.lookup res dom DNS.TXT >>= return.parseQuery
   | otherwise         = return $ Left DNS.IllegalDomain
   where
     dom :: DNS.Domain
@@ -42,7 +55,7 @@ sendQuery res q
 -- @
 sendQueryDefault :: Encodable a
                  => a
-                 -> IO (Either DNS.DNSError [DNS.RDATA])
+                 -> IO (Either DNS.DNSError Response)
 sendQueryDefault dom = do
     rs <- DNS.makeResolvSeed DNS.defaultResolvConf
     DNS.withResolver rs $ \resolver -> sendQuery resolver dom

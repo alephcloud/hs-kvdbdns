@@ -40,7 +40,7 @@ import Network.Socket.ByteString (sendAll, sendAllTo, recvFrom, recv)
 
 -- | Server configuration
 data ServerConf = ServerConf
-  { query   :: ByteString -> IO (Maybe ByteString) -- ^ the method to perform a request
+  { query   :: ByteString -> IO (Maybe KVDB.Response) -- ^ the method to perform a request
   , inFail  :: DNSFormat  -> IO (Either String DNSFormat) -- ^ the method to use to handle query failure
   }
 
@@ -52,7 +52,7 @@ instance Default ServerConf where
       }
 
 -- | Default implementation of a query
-queryNothing :: ByteString -> IO (Maybe ByteString)
+queryNothing :: ByteString -> IO (Maybe KVDB.Response)
 queryNothing _ = return Nothing
 
 -- | Default implementation of an inFail
@@ -86,7 +86,7 @@ handleRequest conf req =
     Just q -> do
         mres <- query conf $ qname q
         case mres of
-           Just txt -> return $ Right $ mconcat . SL.toChunks $ encode $ responseTXT q (splitTxt txt)
+           Just txt -> return $ Right $ mconcat . SL.toChunks $ encode $ responseTXT q (splitTxt $ KVDB.encodeResponse txt)
            Nothing  -> inFail conf req >>= return.inFailWrapper
     Nothing -> inFail conf req >>= return.inFailWrapper
   where
