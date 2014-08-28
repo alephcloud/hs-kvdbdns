@@ -1,5 +1,5 @@
 -- |
--- Module      : Network.DNS.KVDB.Utils
+-- Module      : Network.DNS.API.Utils
 -- License     : BSD-Style
 -- Copyright   : Copyright © 2014 AlephCloud Systems, Inc.
 --
@@ -7,11 +7,11 @@
 -- Stability   : experimental
 -- Portability : unknown
 --
-module Network.DNS.KVDB.Utils
+module Network.DNS.API.Utils
    ( checkEncoding
    ) where
 
-import Network.DNS.KVDB.Types
+import Network.DNS.API.Types
 
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B

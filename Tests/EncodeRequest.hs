@@ -18,12 +18,12 @@ import Data.Word (Word8)
 import Test.Tasty
 import Test.Tasty.QuickCheck
 
-import Network.DNS.KVDB.Types
+import Network.DNS.API.Types
 import Control.Applicative
 
 import ArbitraryByteString
 
-import Network.DNS.KVDB.Utils
+import Network.DNS.API.Utils
 
 data TestRequest = TestRequest Request ByteString
   deriving (Show, Eq)

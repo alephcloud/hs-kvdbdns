@@ -9,8 +9,8 @@
 --
 
 import System.Environment
-import Network.DNS.KVDB.Types
-import Network.DNS.KVDB.Client
+import Network.DNS.API.Types
+import Network.DNS.API.Client
 
 import Data.Char   (ord)
 import Data.Word (Word8)

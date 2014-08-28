@@ -19,7 +19,7 @@ main :: IO ()
 main =
   defaultMain tests
 
-tests = testGroup "KVDB over DNS"
+tests = testGroup "API over DNS"
     [ tests_encode
     , tests_dns_request
     ]

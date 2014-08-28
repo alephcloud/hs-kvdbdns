@@ -19,7 +19,7 @@ import Test.Tasty.QuickCheck
 import Control.Applicative
 import ArbitraryByteString
 
-import Network.DNS.KVDB.Types
+import Network.DNS.API.Types
 
 instance Arbitrary Response where
   arbitrary =

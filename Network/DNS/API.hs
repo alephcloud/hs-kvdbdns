@@ -1,5 +1,5 @@
 -- |
--- Module      : Network.DNS.KVDB
+-- Module      : Network.DNS.API
 -- License     : BSD-Style
 -- Copyright   : Copyright © 2014 AlephCloud Systems, Inc.
 --
@@ -7,7 +7,7 @@
 -- Stability   : experimental
 -- Portability : unknown
 --
-module Network.DNS.KVDB
+module Network.DNS.API
   ( -- * Class
     Encodable(..)
     -- * Client side
@@ -18,7 +18,7 @@ module Network.DNS.KVDB
   , handleQuery
   ) where
 
-import Network.DNS.KVDB.Types
+import Network.DNS.API.Types
 
-import Network.DNS.KVDB.Client
-import Network.DNS.KVDB.Server
+import Network.DNS.API.Client
+import Network.DNS.API.Server

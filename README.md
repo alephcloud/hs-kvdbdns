@@ -1,7 +1,6 @@
-# KVDB over DNS
+# API over DNS
 
-This library provide a simple API to manage Key-Value query to a Data-Base
-over DNS (using TXT queries).
+This library provide a simple API to send request using DNS protocol (the TXT query record)
 
 It does not implement the DNS protocol, it uses the [dns](https://hackage.haskell.org/package/dns).
 
@@ -19,10 +18,10 @@ already installed run the following command from the shell:
 In the examples directory:
 * Client:
     * "echo" query: ask to return what I send to him
-    * "db" query: ask to access something in the database (try the keys "linux" or "haskell")
+    * "db" query: ask to access something in a database (try the keys "linux" or "haskell")
 * Server:
     * respond to "echo" or "db" queries
-    * return ServerError in case of base queries or non-TXT request
+    * return ServerError in case of bad queries or non-TXT request
 
     cabal configure -f executable
 
@@ -30,10 +29,10 @@ In the examples directory:
 
 ## Request
 
-All the query MUST implement the class **Encodable** (see Network.DNS.KVDB.Types).
+All the query MUST implement the class **Encodable** (see Network.DNS.API.Types).
 
 The idea is to allow user to implement their own representation of a query.
-For example, Network.DNS.KVDB.Types implements a **Request Encodable**.
+For example, Network.DNS.API.Types implements a **Request Encodable**.
 
     data Request = Request
         { domain :: ByteString

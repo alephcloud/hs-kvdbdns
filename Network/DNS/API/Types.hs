@@ -1,5 +1,5 @@
 -- |
--- Module      : Network.DNS.KVDB.Types
+-- Module      : Network.DNS.API.Types
 -- License     : BSD-Style
 -- Copyright   : Copyright © 2014 AlephCloud Systems, Inc.
 --
@@ -9,7 +9,7 @@
 --
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
-module Network.DNS.KVDB.Types
+module Network.DNS.API.Types
   ( -- * Request
     Encodable(..)
   , Request(..)

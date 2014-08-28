@@ -16,8 +16,8 @@ import qualified Data.ByteString      as S
 import Data.Map (Map)
 import qualified Data.Map as Map
 
-import Network.DNS.KVDB.Server
-import qualified Network.DNS.KVDB.Types as KVDB
+import Network.DNS.API.Server
+import qualified Network.DNS.API.Types as API
 
 import System.Environment
 
@@ -36,7 +36,7 @@ main = do
     byteStringFromString s = S.pack $ map (fromIntegral.ord) s
 
 ------------------------------------------------------------------------------
---                          KVDB: queries handling                          --
+--                          API: queries handling                          --
 ------------------------------------------------------------------------------
 
 type KeyMap = Map ByteString ByteString
@@ -55,15 +55,15 @@ exampleDB =
 -- handle two commands:
 -- * echo: return $ Just $ "nonce" ++ ';' ++ "param"
 -- * db  : return $ the result of a lookup in the database
-queryDummy :: ByteString -> ByteString -> IO (Maybe KVDB.Response)
+queryDummy :: ByteString -> ByteString -> IO (Maybe API.Response)
 queryDummy dom req =
-  return $ case KVDB.cmd request of
-              "echo" -> Just $ sign (KVDB.nonce request) (KVDB.param request)
-              "db"   -> maybe Nothing (\p -> Just $ sign (KVDB.nonce request) p) $ Map.lookup (KVDB.param request) exampleOfDB
+  return $ case API.cmd request of
+              "echo" -> Just $ sign (API.nonce request) (API.param request)
+              "db"   -> maybe Nothing (\p -> Just $ sign (API.nonce request) p) $ Map.lookup (API.param request) exampleOfDB
               _      -> Nothing
   where
-    request :: KVDB.Request
-    request = KVDB.decode dom req
+    request :: API.Request
+    request = API.decode dom req
 
-    sign :: ByteString -> ByteString -> KVDB.Response
-    sign n t = KVDB.Response { signature = n, response = t }
+    sign :: ByteString -> ByteString -> API.Response
+    sign n t = API.Response { signature = n, response = t }

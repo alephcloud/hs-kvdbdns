@@ -1,5 +1,5 @@
 -- |
--- Module      : Network.DNS.KVDB.Server
+-- Module      : Network.DNS.API.Server
 -- License     : BSD-Style
 -- Copyright   : Copyright © 2014 AlephCloud Systems, Inc.
 --
@@ -7,12 +7,12 @@
 -- Stability   : experimental
 -- Portability : unknown
 --
-module Network.DNS.KVDB.Server
+module Network.DNS.API.Server
   ( -- * Helpers
     ServerConf(..)
   , handleQuery
     -- * defaultServer
-  , KVDBDNSConnection
+  , DNSAPIConnection
   , getDefaultSockets
   , defaultListener
   , defaultServer
@@ -30,7 +30,7 @@ import Data.Maybe  (listToMaybe)
 import Data.Monoid (mconcat)
 
 import Network.DNS hiding (lookup)
-import qualified Network.DNS.KVDB.Types as KVDB
+import qualified Network.DNS.API.Types as API
 import Network.Socket hiding (recvFrom, recv)
 import Network.Socket.ByteString (sendAll, sendAllTo, recvFrom, recv)
 
@@ -40,7 +40,7 @@ import Network.Socket.ByteString (sendAll, sendAllTo, recvFrom, recv)
 
 -- | Server configuration
 data ServerConf = ServerConf
-  { query   :: ByteString -> IO (Maybe KVDB.Response) -- ^ the method to perform a request
+  { query   :: ByteString -> IO (Maybe API.Response) -- ^ the method to perform a request
   , inFail  :: DNSFormat  -> IO (Either String DNSFormat) -- ^ the method to use to handle query failure
   }
 
@@ -52,7 +52,7 @@ instance Default ServerConf where
       }
 
 -- | Default implementation of a query
-queryNothing :: ByteString -> IO (Maybe KVDB.Response)
+queryNothing :: ByteString -> IO (Maybe API.Response)
 queryNothing _ = return Nothing
 
 -- | Default implementation of an inFail
@@ -86,7 +86,7 @@ handleRequest conf req =
     Just q -> do
         mres <- query conf $ qname q
         case mres of
-           Just txt -> return $ Right $ mconcat . SL.toChunks $ encode $ responseTXT q (splitTxt $ KVDB.encodeResponse txt)
+           Just txt -> return $ Right $ mconcat . SL.toChunks $ encode $ responseTXT q (splitTxt $ API.encodeResponse txt)
            Nothing  -> inFail conf req >>= return.inFailWrapper
     Nothing -> inFail conf req >>= return.inFailWrapper
   where
@@ -163,11 +163,11 @@ handleQuery conf bs =
 --                         Default server: helpers                          --
 ------------------------------------------------------------------------------
 
-data KVDBDNSConnection
+data DNSAPIConnection
     = UDPConnection Socket
     deriving (Show, Eq)
 
-getDefaultSockets :: IO [KVDBDNSConnection]
+getDefaultSockets :: IO [DNSAPIConnection]
 getDefaultSockets = do
   addrinfos <- getAddrInfo
                    (Just (defaultHints
@@ -180,7 +180,7 @@ getDefaultSockets = do
                    Nothing (Just "domain")
   mapM addrInfoToSocket addrinfos
   where
-    addrInfoToSocket :: AddrInfo -> IO KVDBDNSConnection
+    addrInfoToSocket :: AddrInfo -> IO DNSAPIConnection
     addrInfoToSocket addrinfo = do
       sock <- socket (addrFamily addrinfo) (addrSocketType addrinfo) defaultProtocol
       bindSocket sock (addrAddress addrinfo)
@@ -189,7 +189,7 @@ getDefaultSockets = do
                     _        -> error $ "Socket Type not handle: " ++ (show addrinfo)
 
 -- | a default server: handle queries for ever
-defaultListener :: ServerConf -> KVDBDNSConnection -> IO ()
+defaultListener :: ServerConf -> DNSAPIConnection -> IO ()
 defaultListener conf (UDPConnection sock) =
   forever $ do
     (bs, addr) <- recvFrom sock 512

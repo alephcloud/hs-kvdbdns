@@ -1,5 +1,5 @@
 -- |
--- Module      : Network.DNS.KVDB.Client
+-- Module      : Network.DNS.API.Client
 -- License     : BSD-Style
 -- Copyright   : Copyright © 2014 AlephCloud Systems, Inc.
 --
@@ -7,13 +7,13 @@
 -- Stability   : experimental
 -- Portability : unknown
 --
-module Network.DNS.KVDB.Client
+module Network.DNS.API.Client
     ( sendQuery
     , sendQueryDefault
     ) where
 
-import Network.DNS.KVDB.Types
-import Network.DNS.KVDB.Utils
+import Network.DNS.API.Types
+import Network.DNS.API.Utils
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
