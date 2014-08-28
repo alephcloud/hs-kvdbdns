@@ -3,16 +3,22 @@
 
 name:                hs-kvdbdns-dns
 version:             0.1.0.0
--- synopsis:            
--- description:         
+synopsis:            A simple API for Key-Value Data-base over DNS
+description:
+    KVDBDNS is a simple and easy API to implement Key-Value Data base
+    over DNS.
+
+    The idea: being able to implement a KVDB server using the DNS protocol
+    * the domain name will transport the requested key
+    * the TXT answer will contain the associated value
 license:             BSD3
 license-file:        LICENSE
 author:              Nicolas DI PRIMA
 maintainer:          ndiprima@alephcloud.com
 copyright:           Copyright (c) 2014 AlephCloud, Inc.
+Homepage:            https://github.com/alephcloud/hs-kvdbdns
 category:            Network
 build-type:          Simple
--- extra-source-files:  
 cabal-version:       >=1.10
 
 Flag executable

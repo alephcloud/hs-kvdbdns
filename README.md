@@ -18,30 +18,46 @@ already installed run the following command from the shell:
 
 In the examples directory:
 * Client:
-    * perform Dummy query
+    * "echo" query: ask to return what I send to him
+    * "db" query: ask to access something in the database (try the keys "linux" or "haskell")
 * Server:
-    * echo the dummy key (drop the domain)
-    * forward all the non-TXT queries to a realDNS
+    * respond to "echo" or "db" queries
+    * return ServerError in case of base queries or non-TXT request
 
     cabal configure -f executable
 
 # The API
 
-## Domain Encoding
+## Request
 
 All the query MUST implement the class **Encodable** (see Network.DNS.KVDB.Types).
 
 The idea is to allow user to implement their own representation of a query.
-For example, Network.DNS.KVDB.Types implement a **Dummy Encodable**.
+For example, Network.DNS.KVDB.Types implements a **Request Encodable**.
 
-    data Dummy = Dummy
-        { domainServer :: String
-        , key          :: String
+    data Request = Request
+        { domain :: ByteString
+        , cmd    :: ByteString
+        , nonce  :: ByteString
+        , param  :: ByteString
     }
 
 An encodable data MUST implement two methods:
 * encode: converts the data into a valid FQDN
 * decode: converts a FQDN into the needed data
+
+In the case of a Request the FQDN will look like:
+
+    <encoded32(param)>.<encoded32(nonce)>.<encoded32(cmd)>.domain
+
+## Response
+
+    data Response = Response
+        { signature :: ByteString
+        , response  :: ByteString
+        }
+
+Every response to a valide request will be return in this structure.
 
 ## The query methods
 
