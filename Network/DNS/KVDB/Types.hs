@@ -10,8 +10,13 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Network.DNS.KVDB.Types
-  ( Encodable(..)
+  ( -- * Request
+    Encodable(..)
   , Request(..)
+    -- * Response
+  , Response(..)
+  , encodeResponse
+  , decodeResponse
   ) where
 
 import Data.ByteString (ByteString)
@@ -19,6 +24,32 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base32 as BSB32
 
 import Data.List (intercalate)
+import Data.Word (Word8)
+
+data Response = Response
+  { response  :: ByteString
+  , signature :: ByteString
+  } deriving (Show, Eq)
+
+encodeResponse :: Response -> ByteString
+encodeResponse resp = B.concat [sigLength, sig, txt]
+  where
+    sigLength :: ByteString
+    sigLength = B.pack [fromIntegral $ B.length sig]
+    txt = response  resp
+    sig = signature resp
+
+decodeResponse :: ByteString -> Response
+decodeResponse bs =
+  Response
+    { response  = txt
+    , signature = sig
+    }
+  where
+    sigLength :: Int
+    sigLength = fromIntegral $ B.head bs
+    sig = B.take sigLength $ B.drop 1 bs
+    txt = B.drop (1 + sigLength) bs
 
 class Encodable a where
   encode :: a -> ByteString

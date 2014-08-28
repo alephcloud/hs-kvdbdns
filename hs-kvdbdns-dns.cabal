@@ -40,9 +40,8 @@ Test-Suite           tests
   Main-is:             Tests.hs
   build-depends:       base >=4.7 && <4.8
                      , bytestring
-                     , QuickCheck >= 2
-                     , test-framework
-                     , test-framework-quickcheck2
+                     , tasty
+                     , tasty-quickcheck
                      , hs-kvdbdns-dns
   default-language:    Haskell2010
 

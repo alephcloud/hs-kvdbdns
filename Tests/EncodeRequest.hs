@@ -15,8 +15,8 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Data.Word (Word8)
 
-import Test.QuickCheck.Arbitrary
-import Test.QuickCheck.Gen
+import Test.Tasty
+import Test.Tasty.QuickCheck
 
 import Network.DNS.KVDB.Types
 import Control.Applicative
@@ -49,7 +49,7 @@ prop_encode_request :: TestRequest -> Bool
 prop_encode_request (TestRequest req dom)
   =  d1 == d2
   && d2 == req
-  && checkEncoding e1
+  && (checkEncoding e1 || 255 < B.length e1)
   where
     e1 = encode req
     d1 = decode dom e1

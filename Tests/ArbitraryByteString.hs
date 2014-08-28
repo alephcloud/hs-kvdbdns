@@ -12,8 +12,9 @@ module ArbitraryByteString where
 import Data.Word (Word8)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import Test.QuickCheck.Arbitrary
-import Test.QuickCheck.Gen
+
+import Test.Tasty
+import Test.Tasty.QuickCheck
 
 instance Arbitrary ByteString where
   arbitrary =

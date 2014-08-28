@@ -13,8 +13,8 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Data.ByteString.Base32
 
-import Test.QuickCheck.Arbitrary
-import Test.QuickCheck.Gen
+import Test.Tasty
+import Test.Tasty.QuickCheck
 
 import ArbitraryByteString
 

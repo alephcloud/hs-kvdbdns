@@ -7,17 +7,19 @@
 -- Stability   : experimental
 -- Portability : unknown
 --
-import Test.QuickCheck
-import Test.Framework (defaultMain, testGroup)
-import Test.Framework.Providers.QuickCheck2 (testProperty)
+import Test.Tasty
+import Test.Tasty.QuickCheck
 
 import EncodeString
 import EncodeByteString
 import EncodeRequest
+import EncodeResponse
 
 main :: IO ()
 main =
-  defaultMain
+  defaultMain tests
+
+tests = testGroup "KVDB over DNS"
     [ tests_encode
     , tests_dns_request
     ]
@@ -29,4 +31,5 @@ main =
       ]
     tests_dns_request = testGroup "DNS Request"
       [ testProperty "Encode Request"       prop_encode_request
+      , testProperty "Encode Response"      prop_encode_response
       ]
