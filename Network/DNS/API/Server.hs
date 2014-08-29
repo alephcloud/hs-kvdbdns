@@ -40,8 +40,8 @@ import Network.Socket.ByteString (sendAll, sendAllTo, recvFrom, recv)
 
 -- | Server configuration
 data ServerConf = ServerConf
-  { query   :: ByteString -> IO (Maybe API.Response) -- ^ the method to perform a request
-  , inFail  :: DNSFormat  -> IO (Either String DNSFormat) -- ^ the method to use to handle query failure
+  { query   :: SockAddr -> ByteString -> IO (Maybe API.Response) -- ^ the method to perform a request
+  , inFail  :: DNSFormat -> IO (Either String DNSFormat) -- ^ the method to use to handle query failure
   }
 
 -- Default
@@ -52,8 +52,8 @@ instance Default ServerConf where
       }
 
 -- | Default implementation of a query
-queryNothing :: ByteString -> IO (Maybe API.Response)
-queryNothing _ = return Nothing
+queryNothing :: SockAddr -> ByteString -> IO (Maybe API.Response)
+queryNothing _ _ = return Nothing
 
 -- | Default implementation of an inFail
 inFailError :: DNSFormat -> IO (Either String DNSFormat)
@@ -80,11 +80,11 @@ splitTxt bs
 -- Handle a request:
 -- try the query function given in the ServerConf
 -- if it fails, then call the given proxy
-handleRequest :: ServerConf -> DNSFormat -> IO (Either String ByteString)
-handleRequest conf req =
+handleRequest :: ServerConf -> SockAddr -> DNSFormat -> IO (Either String ByteString)
+handleRequest conf sender req =
   case listToMaybe . filterTXT . question $ req of
     Just q -> do
-        mres <- query conf $ qname q
+        mres <- query conf sender $ qname q
         case mres of
            Just txt -> return $ Right $ mconcat . SL.toChunks $ encode $ responseTXT q (splitTxt $ API.encodeResponse txt)
            Nothing  -> inFail conf req >>= return.inFailWrapper
@@ -152,12 +152,13 @@ handleRequest conf req =
 
 -- | handle a DNS query
 handleQuery :: ServerConf
+            -> SockAddr
             -> ByteString -- ^ the query
             -> IO (Either String ByteString)
-handleQuery conf bs =
+handleQuery conf sender bs =
   case decode (SL.fromChunks [bs]) of
     Left msg  -> return $ Left $ "Query: Error: " ++ msg
-    Right req -> handleRequest conf req
+    Right req -> handleRequest conf sender req
 
 ------------------------------------------------------------------------------
 --                         Default server: helpers                          --
@@ -194,7 +195,7 @@ defaultListener conf (UDPConnection sock) =
   forever $ do
     (bs, addr) <- recvFrom sock 512
     forkIO $ do
-       eResp <- handleQuery conf bs
+       eResp <- handleQuery conf addr bs
        case eResp of
          Right bs -> void $ timeout (3 * 1000 * 1000) (sendAllTo sock bs addr)
          Left err -> putStrLn err

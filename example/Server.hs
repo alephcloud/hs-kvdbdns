@@ -55,8 +55,10 @@ exampleDB =
 -- handle two commands:
 -- * echo: return $ Just $ "nonce" ++ ';' ++ "param"
 -- * db  : return $ the result of a lookup in the database
-queryDummy :: ByteString -> ByteString -> IO (Maybe API.Response)
-queryDummy dom req =
+--
+-- This actual example just ignore who sent it.
+queryDummy :: ByteString -> a -> ByteString -> IO (Maybe API.Response)
+queryDummy dom _ req =
   return $ case API.cmd request of
               "echo" -> Just $ sign (API.nonce request) (API.param request)
               "db"   -> maybe Nothing (\p -> Just $ sign (API.nonce request) p) $ Map.lookup (API.param request) exampleOfDB
