@@ -25,24 +25,22 @@ import ArbitraryByteString
 
 import Network.DNS.API.Utils
 
-data TestRequest = TestRequest Request ByteString
+data TestRequest = TestRequest (Request ByteString) ByteString
   deriving (Show, Eq)
 
 instance Arbitrary TestRequest where
   arbitrary =
-    let genParam = arbitrary :: Gen ByteString
-        genDom     n = vectorOf n (choose (97, 122))       >>= return . B.pack
+    let genDom     n = vectorOf n (choose (97, 122))       >>= return . B.pack
         genCommand n = vectorOf n (arbitrary :: Gen Word8) >>= return . B.pack
         genNonce   n = vectorOf n (arbitrary :: Gen Word8) >>= return . B.pack
     in  do
       sizeDom   <- choose (2, 6)
-      sizeCmd   <- choose (1, 35)
-      sizeNonce <- choose (1, 35)
+      sizeCmd   <- choose (1, 110)
+      sizeNonce <- choose (4, 12)
       dom <- genDom sizeDom
       req <- Request dom
               <$> genCommand sizeCmd
               <*> genNonce sizeNonce
-              <*> genParam
       return $ TestRequest req dom
 
 prop_encode_request :: TestRequest -> Bool

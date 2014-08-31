@@ -12,6 +12,7 @@
 module Network.DNS.API.Types
   ( -- * Request
     Encodable(..)
+  , Packable(..)
   , Request(..)
     -- * Response
   , Response(..)
@@ -71,35 +72,75 @@ class Encodable a where
   encode :: (Monad m, Applicative m) => a -> m ByteString
   decode :: (Monad m, Applicative m) => ByteString -> ByteString -> m a
 
--- | Describe a request sent by client:
--- <param[.param]>.<nonce>.<cmd>.db.net
-data Request = Request
-  { domain :: ByteString -- ^ the targeted domain (the DN server)
-  , cmd    :: ByteString -- ^ the type of request made to the DNS
-  , nonce  :: ByteString -- ^ a nonce use by the server to sign the answer
-  , param  :: ByteString -- ^ the request param
+------------------------------------------------------------------------------
+--                          Encodable request                               --
+------------------------------------------------------------------------------
+
+-- | This is the main structure that describes a DNS request
+-- Use it to send a DNS query to the DNS-Server
+--
+-- generate the API byte array:
+-- * [1]: nonce length (l >= 0)
+-- * [l]: nonce
+-- * [1]: command length (s > 0)
+-- * [s]:
+--     * [1]: the command type
+--     * [s-1]: the command params (depends of the command type)
+--
+-- encode the API byte array into base32 String and append the domain name:
+-- > <base32(API byte array)>.<dns domain name>
+--
+-- And to use it quickly:
+-- > encode $ DNSRequest "alephcloud.com." ("hello words!" :: ByteString) "0123456789"
+data Request p = Request
+  { domain :: ByteString -- ^ the DNS-Server Domain Name
+  , cmd    :: p          -- ^ the command
+  , nonce  :: ByteString -- ^ a nonce to sign the Response
   } deriving (Show, Eq)
 
-instance Encodable Request where
-  encode req =
-    (B.intercalate (B.pack [0x2E])) <$> sequence [eparam, enonce, ecmd, edom]
+-- | This represent a packable
+--
+-- It is use to pack/unpack (into bytestring) a command in the case of the
+-- proposed Request
+class Packable p where
+  pack :: p -> ByteString
+  unpack :: (Monad m, Applicative m) => ByteString -> m p
+
+instance Packable ByteString where
+  pack = id
+  unpack = pure.id
+
+instance (Packable p) => Encodable (Request p) where
+  encode req = B.concat <$> sequence [encoded, pure $ B.pack [0x2E], pure $ domain req]
     where
-      edom   = pure   $ domain req
-      ecmd   = encode $ cmd req
-      enonce = encode $ nonce req
-      eparam = encode $ param req
+      encoded :: (Monad m, Applicative m) => m ByteString
+      encoded =
+        let nonceBS = nonce req
+            cmdBS   = pack $ cmd req
+            nonceSize = fromIntegral $ B.length nonceBS :: Word8
+            cmdSize   = fromIntegral $ B.length cmdBS :: Word8
+        in  encode $ B.concat [ B.pack [nonceSize]
+                              , nonceBS
+                              , B.pack [cmdSize]
+                              , cmdBS
+                              ]
+
   decode dom bs =
-    Request
-      <$> pure dom
-      <*> decode dom rCmd
-      <*> decode dom rNonce
-      <*> decode dom rParam
+      Request
+        <$> pure dom
+        <*> (unpack =<< command)
+        <*> ((\l s -> (B.take l $ B.drop 1 s)) <$> nonceSize <*> decoded)
     where
-      paramNonceCmd = B.take (B.length bs - B.length dom - 1) bs
-      (paramNonceDot, rCmd) = B.spanEnd (/= 0x2E) paramNonceCmd
-      paramNonce = B.take (B.length paramNonceDot - 1) paramNonceDot
-      (paramDot, rNonce) = B.spanEnd (/= 0x2E) paramNonce
-      (rParam, _) = B.spanEnd (== 0x0E) paramDot
+      decoded :: (Monad m, Applicative m) => m ByteString
+      decoded = decode dom $ B.take (B.length bs - B.length dom - 1) bs
+
+      nonceSize :: (Monad m, Applicative m) => m Int
+      nonceSize = (fromIntegral . B.head) <$> decoded
+
+      commandAndSize :: (Monad m, Applicative m) => m ByteString
+      commandAndSize = (\l s -> B.drop (l + 1) s) <$> nonceSize <*> decoded
+      command :: (Monad m, Applicative m) => m ByteString
+      command = (B.drop 1) <$> commandAndSize
 
 instance Encodable ByteString where
   encode = encodeURL

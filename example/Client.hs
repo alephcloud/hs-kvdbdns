@@ -9,8 +9,10 @@
 --
 
 import System.Environment
-import Network.DNS.API.Types
 import Network.DNS.API.Client
+import Network.DNS.API.Types
+
+import API
 
 import Data.Char   (ord)
 import Data.Word (Word8)
@@ -25,9 +27,8 @@ main = do
     [d, c, p] -> do
       let req = Request
                   { domain = byteStringFromString d
-                  , cmd = byteStringFromString c
+                  , cmd = Command (byteStringFromString c) (byteStringFromString p)
                   , nonce = B.pack [1..12]
-                  , param = byteStringFromString p
                   }
       list <- sendQueryDefault req
       case list of

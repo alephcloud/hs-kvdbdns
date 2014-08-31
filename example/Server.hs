@@ -18,6 +18,7 @@ import qualified Data.Map as Map
 
 import Network.DNS.API.Server
 import qualified Network.DNS.API.Types as API
+import API
 
 import System.Environment
 
@@ -64,15 +65,15 @@ queryDummy dom _ req =
     (treatRequest)
     request
   where
-    request :: Maybe API.Request
+    request :: Maybe ExampleRequest
     request = API.decode dom req
 
     sign :: ByteString -> ByteString -> API.Response
     sign n t = API.Response { signature = n, response = t }
 
-    treatRequest :: API.Request -> IO (Maybe API.Response)
+    treatRequest :: API.ExampleRequest -> IO (Maybe API.Response)
     treatRequest r =
-      return $ case API.cmd r of
-                  "echo" -> Just $ sign (API.nonce r) (API.param r)
-                  "db"   -> maybe Nothing (\p -> Just $ sign (API.nonce r) p) $ Map.lookup (API.param r) exampleOfDB
+      return $ case command $ API.cmd r of
+                  "echo" -> Just $ sign (API.nonce r) (param $ API.cmd r)
+                  "db"   -> maybe Nothing (\p -> Just $ sign (API.nonce r) p) $ Map.lookup (param $ API.cmd r) exampleOfDB
                   _      -> Nothing
