@@ -25,12 +25,13 @@ import ArbitraryByteString
 prop_encode_bytestring :: ByteString -> Bool
 prop_encode_bytestring s = d1 == d2 && d1 == s
   where
-    e1 = encode s
-    d1 = decode e1
-    d2 = decode $ encode d1
+    Just e1 = encode s
+    Just d1 = decode e1
+    Just e2 = encode d1
+    Just d2 = decode e2
 
 prop_guess_encoded_length :: ByteString -> Bool
 prop_guess_encoded_length s = guess == B.length e
   where
-    e = encode s
+    Just e = encode s
     guess = guessEncodedLength $ B.length s

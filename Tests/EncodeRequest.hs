@@ -51,6 +51,7 @@ prop_encode_request (TestRequest req dom)
   && d2 == req
   && (checkEncoding e1 || 255 < B.length e1)
   where
-    e1 = encode req
-    d1 = decode dom e1
-    d2 = decode dom $ encode d1
+    Just e1 = encode req
+    Just d1 = decode dom e1
+    Just e2 = encode d1
+    Just d2 = decode dom e2

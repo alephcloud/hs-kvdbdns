@@ -19,6 +19,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 
 import qualified Network.DNS as DNS
+import Control.Applicative
 
 parseQuery :: Either DNS.DNSError [DNS.RDATA]
            -> Either DNS.DNSError Response
@@ -38,11 +39,14 @@ sendQuery :: Encodable a
           -> a            -- ^ the key/request
           -> IO (Either DNS.DNSError Response)
 sendQuery res q
-  | checkEncoding dom = DNS.lookup res dom DNS.TXT >>= return.parseQuery
-  | otherwise         = return $ Left DNS.IllegalDomain
+  | checkEncoding' = either (\err -> return $ Left err) (\d -> DNS.lookup res d DNS.TXT >>= return.parseQuery) dom
+  | otherwise      = return $ Left DNS.IllegalDomain
   where
-    dom :: DNS.Domain
-    dom = encode q
+    dom :: Either DNS.DNSError DNS.Domain
+    dom = either (\_ -> Left DNS.IllegalDomain) (pure) $ encode q
+
+    checkEncoding' :: Bool
+    checkEncoding' = either (\_ -> False) (checkEncoding) dom
 
 -- | Send a TXT query with the default DNS Resolver
 --

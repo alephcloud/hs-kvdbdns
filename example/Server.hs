@@ -59,13 +59,20 @@ exampleDB =
 -- This actual example just ignore who sent it.
 queryDummy :: ByteString -> a -> ByteString -> IO (Maybe API.Response)
 queryDummy dom _ req =
-  return $ case API.cmd request of
-              "echo" -> Just $ sign (API.nonce request) (API.param request)
-              "db"   -> maybe Nothing (\p -> Just $ sign (API.nonce request) p) $ Map.lookup (API.param request) exampleOfDB
-              _      -> Nothing
+  maybe
+    (return Nothing)
+    (treatRequest)
+    request
   where
-    request :: API.Request
+    request :: Maybe API.Request
     request = API.decode dom req
 
     sign :: ByteString -> ByteString -> API.Response
     sign n t = API.Response { signature = n, response = t }
+
+    treatRequest :: API.Request -> IO (Maybe API.Response)
+    treatRequest r =
+      return $ case API.cmd r of
+                  "echo" -> Just $ sign (API.nonce r) (API.param r)
+                  "db"   -> maybe Nothing (\p -> Just $ sign (API.nonce r) p) $ Map.lookup (API.param r) exampleOfDB
+                  _      -> Nothing

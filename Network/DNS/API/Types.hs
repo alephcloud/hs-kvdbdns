@@ -25,7 +25,14 @@ import qualified Data.ByteString.Base32 as BSB32
 
 import Data.List (intercalate)
 import Data.Word (Word8)
+import Control.Applicative
+import Control.Monad
 
+------------------------------------------------------------------------------
+--                                   Response                               --
+------------------------------------------------------------------------------
+
+-- | The response data that will be return to the requester
 data Response = Response
   { response  :: ByteString
   , signature :: ByteString
@@ -51,9 +58,18 @@ decodeResponse bs =
     sig = B.take sigLength $ B.drop 1 bs
     txt = B.drop (1 + sigLength) bs
 
+------------------------------------------------------------------------------
+--                                 Request                                  --
+------------------------------------------------------------------------------
+
+-- | This is the main type to implement to make your requests encodable
+--
+-- As we use the Domain Name field to send request to the DNS Server we need to
+-- encode the URL into a format that will be a valide format for every DNS
+-- servers our request may go through.
 class Encodable a where
-  encode :: a -> ByteString
-  decode :: ByteString -> ByteString -> a
+  encode :: (Monad m, Applicative m) => a -> m ByteString
+  decode :: (Monad m, Applicative m) => ByteString -> ByteString -> m a
 
 -- | Describe a request sent by client:
 -- <param[.param]>.<nonce>.<cmd>.db.net
@@ -65,19 +81,19 @@ data Request = Request
   } deriving (Show, Eq)
 
 instance Encodable Request where
-  encode req = B.intercalate (B.pack [0x2E]) [eparam, enonce, ecmd, edom]
+  encode req =
+    (B.intercalate (B.pack [0x2E])) <$> sequence [eparam, enonce, ecmd, edom]
     where
-      edom   = domain req
+      edom   = pure   $ domain req
       ecmd   = encode $ cmd req
       enonce = encode $ nonce req
       eparam = encode $ param req
   decode dom bs =
     Request
-      { domain = dom
-      , cmd    = decode dom rCmd
-      , nonce  = decode dom rNonce
-      , param  = decode dom rParam
-      }
+      <$> pure dom
+      <*> decode dom rCmd
+      <*> decode dom rNonce
+      <*> decode dom rParam
     where
       paramNonceCmd = B.take (B.length bs - B.length dom - 1) bs
       (paramNonceDot, rCmd) = B.spanEnd (/= 0x2E) paramNonceCmd
@@ -91,12 +107,13 @@ instance Encodable ByteString where
 
 -- Encode a bytestring and split it in node of size 63 (or less)
 -- then intercalate the node separator '.'
-encodeURL :: ByteString -> ByteString
+encodeURL :: (Monad m, Applicative m)
+          => ByteString -> m ByteString
 encodeURL bs
-  | guessedLength > 200 = error "bytestring too long"
-  | otherwise = B.intercalate (B.pack [0x2E]) $ splitByNode e
+  | guessedLength > 200 = fail "bytestring too long"
+  | otherwise = (B.intercalate (B.pack [0x2E])) <$> splitByNode <$> e
   where
-    e :: ByteString
+    e :: (Monad m, Applicative m) => m ByteString
     e = BSB32.encode bs
     guessedLength :: Int
     guessedLength = BSB32.guessEncodedLength $ B.length bs
@@ -111,7 +128,7 @@ encodeURL bs
 -- Decode an URL:
 -- Split the bytestring into node (split at every '.')
 -- and then decode the result
-decodeURL :: ByteString -> ByteString
+decodeURL :: (Monad m, Applicative m) => ByteString -> m ByteString
 decodeURL bs = BSB32.decode fusion
   where
     fusion :: ByteString
