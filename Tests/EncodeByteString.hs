@@ -18,6 +18,8 @@ import Test.Tasty.QuickCheck
 
 import ArbitraryByteString
 
+import Debug.Trace
+
 ------------------------------------------------------------------------------
 --                             Property checkers                            --
 ------------------------------------------------------------------------------
@@ -31,7 +33,7 @@ prop_encode_bytestring s = d1 == d2 && d1 == s
     Just d2 = decode e2
 
 prop_guess_encoded_length :: ByteString -> Bool
-prop_guess_encoded_length s = guess == B.length e
+prop_guess_encoded_length s = (guess - B.length e) < 8
   where
     Just e = encode s
     guess = guessEncodedLength $ B.length s

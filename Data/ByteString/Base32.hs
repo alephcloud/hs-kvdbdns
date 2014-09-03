@@ -18,182 +18,151 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Data.Word (Word8)
 
-import Control.Applicative hiding ((<|>))
+import Control.Monad
+import Control.Applicative
 
-infixr 1 <:>
-(<:>) :: Applicative m => m a -> m [a] -> m [a]
-(<:>) a b = liftA2 (:) a b
+data Base32Reader = Base32Reader
+  { bits   :: Word8
+  , nbRead :: Int
+  , result :: [Word8]
+  } deriving (Show, Eq)
 
--- m a -> a -> ma
-infixl 1 <<$>
-(<<$>) :: Applicative m => m Word8 -> Int -> m Word8
-(<<$>) a b = (shiftL) <$> a <*> pure b
-
-infixl 1 <$>>
-(<$>>) :: Applicative m => m Word8 -> Int -> m Word8
-(<$>>) a b = (shiftR) <$> a <*> pure b
-
-infixl 2 <&>
-(<&>) :: Applicative m => m Word8 -> Word8 -> m Word8
-(<&>) a b = (.&.) <$> a <*> pure b
-
-infixl 1 <|>
-(<|>) :: Applicative m => m Word8 -> m Word8 -> m Word8
-(<|>) a b = (.|.) <$> a <*> b
+------------------------------------------------------------------------------
+--                           Encode a ByteString                            --
+------------------------------------------------------------------------------
 
 encode :: (Monad m, Applicative m)
        => ByteString
        -> m ByteString
-encode bs = B.pack <$> encodeList originList
+encode bs = B.pack.reverse.result <$> (eFlushBuffer =<< B.foldl encoder state bs)
   where
-    originList :: [Word8]
-    originList = B.unpack bs
+    state :: (Monad m, Applicative m) => m Base32Reader
+    state = return $ Base32Reader { bits = 0x00, nbRead = 0, result = [] }
 
-decode :: (Monad m, Applicative m) => ByteString -> m ByteString
-decode bs = B.pack <$> decodeList originList
-  where
-    originList :: [Word8]
-    originList = B.unpack bs
+encoder :: (Monad m, Applicative m)
+        => m Base32Reader
+        -> Word8
+        -> m Base32Reader
+encoder mst w =
+  mst >>= \st ->
+  case nbRead st of
+    0 -> eUpdateBuffer w 1 5 st >>= eFlushBuffer >>= eUpdateBuffer w 6 8
+    1 -> eUpdateBuffer w 1 4 st >>= eFlushBuffer >>= eUpdateBuffer w 5 8
+    2 -> eUpdateBuffer w 1 3 st >>= eFlushBuffer >>= eUpdateBuffer w 4 8 >>= eFlushBuffer
+    3 -> eUpdateBuffer w 1 2 st >>= eFlushBuffer >>= eUpdateBuffer w 3 7 >>= eFlushBuffer >>= eUpdateBuffer w 8 8
+    4 -> eUpdateBuffer w 1 1 st >>= eFlushBuffer >>= eUpdateBuffer w 2 6 >>= eFlushBuffer >>= eUpdateBuffer w 7 8
+    _ -> fail $ "encoder: got a read size of: " ++ (show $ nbRead st)
 
-encodeList :: (Applicative m, Monad m) => [Word8] -> m [Word8]
-encodeList []     = pure []
-encodeList (c1:c2:c3:c4:c5:xs)
-  = toWord8   (o1 `shiftR` 3)           -- The first 5 bits of c1
-  <:>  toWord8 (((o1 `shiftL` 2) .&. 0x1C) -- The last 3 bits of c1
-    .|. (o2 `shiftR` 6))          -- The first 2 bits of c2
-  <:>  toWord8  ((o2 `shiftR` 1) .&. 0x1F) -- The next 5 bits of c2
-  <:>  toWord8 (((o2 `shiftL` 4) .&. 0x10) -- The last bit of c2
-    .|. (o3 `shiftR` 4))          -- The first 4 bits of c3
-  <:>  toWord8 (((o3 `shiftL` 1) .&. 0x1E) -- The last 4 bits of c3
-    .|. (o4 `shiftR` 7))          -- The first bit of c4
-  <:>  toWord8  ((o4 `shiftR` 2) .&. 0x1F) -- The next 5bits of c4
-  <:>  toWord8 (((o4 `shiftL` 3) .&. 0x18) -- The last 2 bits of c4
-    .|. (o5 `shiftR` 5))          -- The first 3 bits of c5
-  <:>  toWord8   (o5 .&. 0x1F)             -- The last 5 bits of c5
-  <:>  encodeList xs
-  where
-    o1 = fromIntegral c1
-    o2 = fromIntegral c2
-    o3 = fromIntegral c3
-    o4 = fromIntegral c4
-    o5 = fromIntegral c5
-encodeList [c1,c2,c3,c4]
-  = toWord8   (o1 `shiftR` 3)           -- The first 5 bits of c1
-  <:> toWord8 (((o1 `shiftL` 2) .&. 0x1C) -- The last 3 bits of c1
-         .|. (o2 `shiftR` 6))          -- The first 2 bits of c2
-  <:> toWord8  ((o2 `shiftR` 1) .&. 0x1F) -- The next 5 bits of c2
-  <:> toWord8 (((o2 `shiftL` 4) .&. 0x10) -- The last bit of c2
-         .|. (o3 `shiftR` 4))          -- The first 4 bits of c3
-  <:> toWord8 (((o3 `shiftL` 1) .&. 0x1E) -- The last 4 bits of c3
-         .|. (o4 `shiftR` 7))          -- The first bit of c4
-  <:> toWord8  ((o4 `shiftR` 2) .&. 0x1F) -- The next 5bits of c4
-  <:> toWord8  ((o4 `shiftL` 3) .&. 0x18) -- The last 2 bits of c4
-  <:> pure [122]
-  where
-    o1 = fromIntegral c1
-    o2 = fromIntegral c2
-    o3 = fromIntegral c3
-    o4 = fromIntegral c4
-encodeList [c1,c2,c3]
-  = toWord8   (o1 `shiftR` 3)           -- The first 5 bits of c1
-  <:> toWord8 (((o1 `shiftL` 2) .&. 0x1C) -- The last 3 bits of c1
-         .|. (o2 `shiftR` 6))          -- The first 2 bits of c2
-  <:> toWord8  ((o2 `shiftR` 1) .&. 0x1F) -- The next 5 bits of c2
-  <:> toWord8 (((o2 `shiftL` 4) .&. 0x10) -- The last bit of c2
-         .|. (o3 `shiftR` 4))          -- The first 4 bits of c3
-  <:> toWord8  ((o3 `shiftL` 1) .&. 0x1E) -- The last 4 bits of c3
-  <:> pure [122, 122, 122]
-  where
-    o1 = fromIntegral c1
-    o2 = fromIntegral c2
-    o3 = fromIntegral c3
-encodeList [c1,c2]
-  = toWord8   (o1 `shiftR` 3)           -- The first 5 bits of c1
-  <:> toWord8 (((o1 `shiftL` 2) .&. 0x1C) -- The last 3 bits of c1
-         .|. (o2 `shiftR` 6))          -- The first 2 bits of c2
-  <:> toWord8  ((o2 `shiftR` 1) .&. 0x1F) -- The next 5 bits of c2
-  <:> toWord8  ((o2 `shiftL` 4) .&. 0x10) -- The last bit of c2
-  <:> pure [122, 122, 122, 122]
-  where
-    o1 = fromIntegral c1
-    o2 = fromIntegral c2
-encodeList [c1]
-  =   (toWord8  (o1 `shiftR` 3))           -- The first 5 bits of c1
-  <:> (toWord8 ((o1 `shiftL` 2) .&. 0x1C)) -- The last 3 bits of c1
-  <:> (pure [122, 122, 122, 122, 122, 122])
-  where
-    o1 = fromIntegral c1
+eFlushBuffer :: (Monad m, Applicative m)
+             => Base32Reader -> m Base32Reader
+eFlushBuffer st =  (\c -> Base32Reader { bits = 0, nbRead = 0, result = c:(result st) }) <$> (toWord8 $ fromIntegral $ bits st)
 
-
-
-decodeList :: (Monad m, Applicative m) => [Word8] -> m [Word8]
-decodeList [] = pure []
-decodeList ( c1: c2: c3: c4: c5: c6: c7: c8: cs)
-  | c3 == 122 && c4 == 122 && c5 == 122 && c6 == 122 && c7 == 122 && c8 == 122
-    =    ((o1 <<$> 3) <&> 0xF8
-      <|> (o2 <$>> 2) <&> 0x07)
-    <:> pure []
-  | c5 == 122 && c6 == 122 && c7 == 122 && c8 == 122
-    =    ((o1 <<$> 3)
-      <|> (o2 <$>> 2))
-    <:>    ((o2 <<$> 6) <&> 0xc0
-      <|> (o3 <<$> 1) <&> 0x3e
-      <|> (o4 <$>> 4) <&> 0x01)
-    <:> pure []
-  | c6 == 122 && c7 == 122 && c8 == 122
-    =    ((o1 <<$> 3)
-      <|> (o2 <$>> 2))
-    <:>    ((o2 <<$> 6) <&> 0xc0
-      <|> (o3 <<$> 1) <&> 0x3e
-      <|> (o4 <$>> 4) <&> 0x01)
-    <:>    ((o4 <<$> 4) <&> 0xF0
-      <|> (o5 <$>> 1) <&> 0x0F)
-    <:> pure []
- | c8 == 122
-    =    ((o1 <<$> 3)
-      <|> (o2 <$>> 2))
-    <:>    ((o2 <<$> 6) <&> 0xc0
-      <|> (o3 <<$> 1) <&> 0x3E
-      <|> (o4 <$>> 4) <&> 0x01)
-    <:>    ((o4 <<$> 4) <&> 0xF0
-      <|> (o5 <$>> 1) <&> 0x0F)
-    <:>    ((o5 <<$> 7) <&> 0x80
-      <|> (o6 <<$> 2) <&> 0x7C
-      <|> (o7 <$>> 3) <&> 0x03)
-    <:> pure []
- | otherwise
-    =    ((o1 <<$> 3)
-      <|> (o2 <$>> 2))
-    <:>    ((o2 <<$> 6) <&> 0xc0
-      <|> (o3 <<$> 1) <&> 0x3E
-      <|> (o4 <$>> 4) <&> 0x01)
-    <:>    ((o4 <<$> 4) <&> 0xF0
-      <|> (o5 <$>> 1) <&> 0x0F)
-    <:>    ((o5 <<$> 7) <&> 0x80
-      <|> (o6 <<$> 2) <&> 0x7C
-      <|> (o7 <$>> 3) <&> 0x03)
-    <:>    ((o7 <<$> 5) <&> 0xE0
-      <|> (o8           ) <&> 0x1F)
-    <:> decodeList cs
+eUpdateBuffer :: (Monad m, Applicative m)
+              => Word8
+              -> Int
+              -> Int
+              -> Base32Reader
+              -> m Base32Reader
+eUpdateBuffer w from to st =
+  return $ st { bits = newBits, nbRead = newNbRead }
   where
-    o1 = fromWord8 c1
-    o2 = fromWord8 c2
-    o3 = fromWord8 c3
-    o4 = fromWord8 c4
-    o5 = fromWord8 c5
-    o6 = fromWord8 c6
-    o7 = fromWord8 c7
-    o8 = fromWord8 c8
-decodeList s = fail $ "decodeList: bad input: not a base32BysteString: " ++ (show s)
+    newBits :: Word8
+    newBits = (bits st) .|. (((w `shiftR` shifterR) .&. mask) `shiftL` shifterL)
+    newNbRead :: Int
+    newNbRead = (nbRead st) + length
+
+    shifterR :: Int
+    shifterR = 8 - to
+    shifterL :: Int
+    shifterL = 5 - length - (nbRead st)
+
+    length :: Int
+    length = to - from + 1
+    mask :: Word8
+    mask = getMask length
+
+------------------------------------------------------------------------------
+--                           Decode a ByteString                            --
+------------------------------------------------------------------------------
+
+decode :: (Monad m, Applicative m)
+       => ByteString
+       -> m ByteString
+decode bs = B.pack.reverse.result <$> B.foldl decoder state bs
+  where
+    state :: (Monad m, Applicative m) => m Base32Reader
+    state = return $ Base32Reader { bits = 0x00, nbRead = 0, result = [] }
+
+decoder :: (Monad m, Applicative m)
+        => m Base32Reader
+        -> Word8
+        -> m Base32Reader
+decoder mst c =
+  mst >>= \st -> fromWord8 c >>= \w ->
+  case nbRead st of
+    0 -> dUpdateBuffer w 4 8 st
+    1 -> dUpdateBuffer w 4 8 st
+    2 -> dUpdateBuffer w 4 8 st
+    3 -> dUpdateBuffer w 4 8 st >>= dFlushBuffer
+    4 -> dUpdateBuffer w 4 7 st >>= dFlushBuffer >>= dUpdateBuffer w 8 8
+    5 -> dUpdateBuffer w 4 6 st >>= dFlushBuffer >>= dUpdateBuffer w 7 8
+    6 -> dUpdateBuffer w 4 5 st >>= dFlushBuffer >>= dUpdateBuffer w 6 8
+    7 -> dUpdateBuffer w 4 4 st >>= dFlushBuffer >>= dUpdateBuffer w 5 8
+    _ -> fail $ "decoder: got to readsize of: " ++ (show $ nbRead st) -- this should not happen
+
+dFlushBuffer :: (Monad m, Applicative m)
+             => Base32Reader -> m Base32Reader
+dFlushBuffer st =
+    (return $ st { bits = 0, nbRead = 0, result = (bits st):(result st) })
+
+dUpdateBuffer :: (Monad m, Applicative m)
+              => Word8
+              -> Int
+              -> Int
+              -> Base32Reader
+              -> m Base32Reader
+dUpdateBuffer w from to st =
+  return $ st { bits = newBits, nbRead = newNbRead }
+  where
+    newBits :: Word8
+    newBits = (bits st) .|. (((w `shiftR` shifterR) .&. mask) `shiftL` shifterL)
+    newNbRead :: Int
+    newNbRead = (nbRead st) + length
+
+    shifterR :: Int
+    shifterR = if l < 0 then 0-l else 0
+      where l = 3 - (nbRead st)
+
+    shifterL :: Int
+    shifterL = 8 - length - (nbRead st)
+
+    length :: Int
+    length = to - from + 1
+    mask :: Word8
+    mask = (getMask length)
+
+------------------------------------------------------------------------------
+--                                Helpers                                   --
+------------------------------------------------------------------------------
+
+getMask :: Int -> Word8
+getMask n =
+  case n of
+    0 -> 0x00 -- 0000 0000
+    1 -> 0x01 -- 0000 0001
+    2 -> 0x03 -- 0000 0011
+    3 -> 0x07 -- 0000 0111
+    4 -> 0x0F -- 0000 1111
+    5 -> 0x1F -- 0001 1111
+    6 -> 0x3F -- 0011 1111
+    7 -> 0x7F -- 0111 1111
+    _ -> 0xFF -- 1111 1111
 
 fromWord8 :: (Monad m, Applicative m) => Word8 -> m Word8
 fromWord8 w =
-  case mIndex of
-    Just index -> pure $ fromIntegral index
+  case B.elemIndex w alphabet of
+    Just index -> return $ fromIntegral index
     Nothing    -> fail $ "fromWord8: bad input: can't convert " ++ (show w)
-  where
-    mIndex :: Maybe Int
-    mIndex = B.elemIndex w alphabet
 
 toWord8 :: (Monad m) => Int -> m Word8
 toWord8 n
@@ -203,8 +172,12 @@ toWord8 n
 alphabet :: ByteString
 alphabet = B.pack $ [48..57] ++ [97..119]
 
--- Get the encoded length
-guessEncodedLength :: Int -> Int
+-- | Guess what could be the encoded length
+--
+-- > bs :: ByteString
+-- > (length.encoded bs) - (guessEncoded.length bs) < 8
+guessEncodedLength :: Int -- ^ the data length (in byte)
+                   -> Int -- ^ the maximum length of the encoded data (in byte)
 guessEncodedLength 0 = 0
 guessEncodedLength l
   | modulo == 0 = 8 * l `div` 5
