@@ -21,13 +21,16 @@ import qualified Network.DNS.API.Types as API
 import API
 
 import System.Environment
+import Control.Monad
+import Control.Concurrent
 
 main :: IO ()
 main = do
   args <- getArgs
   name <- getProgName
   case args of
-    [dom] -> do defaultServer (serverConf dom)
+    [dom] -> do _ <- defaultServer (serverConf dom)
+                forever $ threadDelay 10000000000
     _ -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
   where
     serverConf :: String -> ServerConf

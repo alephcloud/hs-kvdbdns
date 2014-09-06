@@ -29,25 +29,38 @@ In the examples directory:
 
 ## Request
 
-All the query MUST implement the class **Encodable** (see Network.DNS.API.Types).
+### Encodable
 
-The idea is to allow user to implement their own representation of a query.
-For example, Network.DNS.API.Types implements a **Request Encodable**.
-
-    data Request = Request
-        { domain :: ByteString
-        , cmd    :: ByteString
-        , nonce  :: ByteString
-        , param  :: ByteString
-    }
+The DNS-API provides an interface to send query. A query MUST implements the
+Class **Encodable**.
 
 An encodable data MUST implement two methods:
 * encode: converts the data into a valid FQDN
 * decode: converts a FQDN into the needed data
 
-In the case of a Request the FQDN will look like:
+### The default Encodable type
 
-    <encoded32(param)>.<encoded32(nonce)>.<encoded32(cmd)>.domain
+You can implement your own type of Request.
+Network.DNS.API.Types already implements a **Request** **Encodable**:
+
+    data Request p = Request
+        { domain :: ByteString
+        , cmd    :: p
+        , nonce  :: ByteString
+        }
+
+*Where p is an instance of **Packable** (see below).*
+
+In the case of the **Request p** the encoded command will look like:
+
+    <encoded32(command and nonce)>.domain
+
+### Packable
+
+For those who want to use the default **Request** type, there is only one
+thing to do: **Implements the commands**.
+
+
 
 ## Response
 

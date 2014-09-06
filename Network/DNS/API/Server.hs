@@ -10,7 +10,7 @@
 module Network.DNS.API.Server
   ( -- * Helpers
     ServerConf(..)
-  , handleQuery
+  , handleRequest
     -- * defaultServer
   , DNSAPIConnection
   , getDefaultSockets
@@ -33,6 +33,10 @@ import Network.DNS hiding (lookup)
 import qualified Network.DNS.API.Types as API
 import Network.Socket hiding (recvFrom, recv)
 import Network.Socket.ByteString (sendAll, sendAllTo, recvFrom, recv)
+
+import Control.Monad.STM
+import Control.Concurrent
+import Control.Concurrent.STM.TChan
 
 ------------------------------------------------------------------------------
 --                         Server Configuration                             --
@@ -150,15 +154,26 @@ handleRequest conf sender req =
         }
       }
 
--- | handle a DNS query
-handleQuery :: ServerConf
-            -> SockAddr
-            -> ByteString -- ^ the query
-            -> IO (Either String ByteString)
-handleQuery conf sender bs =
-  case decode (SL.fromChunks [bs]) of
-    Left msg  -> return $ Left $ "Query: Error: " ++ msg
-    Right req -> handleRequest conf sender req
+------------------------------------------------------------------------------
+--                          Internal Queue System                           --
+------------------------------------------------------------------------------
+
+data DNSReqToHandle = DNSReqToHandle
+    { connection :: DNSAPIConnection
+    , sender     :: SockAddr
+    , getReq     :: DNSFormat
+    }
+
+type DNSReqToHandleChan = TChan DNSReqToHandle
+
+newDNSReqToHandleChan :: IO DNSReqToHandleChan
+newDNSReqToHandleChan = atomically $ newTChan
+
+putReqToHandle :: DNSReqToHandleChan -> DNSReqToHandle -> IO ()
+putReqToHandle chan req = atomically $ writeTChan chan req
+
+popReqToHandle :: DNSReqToHandleChan -> IO DNSReqToHandle
+popReqToHandle = atomically . readTChan
 
 ------------------------------------------------------------------------------
 --                         Default server: helpers                          --
@@ -167,6 +182,33 @@ handleQuery conf sender bs =
 data DNSAPIConnection
     = UDPConnection Socket
     deriving (Show, Eq)
+
+defaultQueryHandler :: ServerConf -> DNSReqToHandleChan -> IO ThreadId
+defaultQueryHandler conf chan =
+  forkIO $ forever $ do
+    dnsReq <- popReqToHandle chan
+    eResp <- handleRequest conf (sender dnsReq) (getReq dnsReq)
+    case eResp of
+      Right bs -> defaultResponder dnsReq bs
+      Left err -> putStrLn err
+  where
+    defaultResponder :: DNSReqToHandle -> ByteString -> IO ()
+    defaultResponder req resp =
+      case connection req of
+        UDPConnection sock -> void $ timeout (3 * 1000 * 1000) (sendAllTo sock resp (sender req))
+
+-- | a default server: handle queries for ever
+defaultListener :: DNSReqToHandleChan -> DNSAPIConnection -> IO ThreadId
+defaultListener chan (UDPConnection sock) =
+  -- accept all requests, and then send the raw received bytestring to the queue
+  -- in order to decode it and then treat it
+  forkIO $ forever $ do
+    -- wait to get some request
+    (bs, addr) <- recvFrom sock 512
+    -- Try to decode it, if it works then add it to the queue
+    case decode (SL.fromChunks [bs]) of
+      Left msg  -> error $ "DNS.decode: Error: " ++ msg
+      Right req -> putReqToHandle chan $ DNSReqToHandle (UDPConnection sock) addr req
 
 getDefaultSockets :: IO [DNSAPIConnection]
 getDefaultSockets = do
@@ -178,7 +220,8 @@ getDefaultSockets = do
                             }
                          )
                    )
-                   Nothing (Just "domain")
+                   (Nothing)
+                   (Just "domain")
   mapM addrInfoToSocket addrinfos
   where
     addrInfoToSocket :: AddrInfo -> IO DNSAPIConnection
@@ -189,16 +232,10 @@ getDefaultSockets = do
                     Datagram -> UDPConnection sock
                     _        -> error $ "Socket Type not handle: " ++ (show addrinfo)
 
--- | a default server: handle queries for ever
-defaultListener :: ServerConf -> DNSAPIConnection -> IO ()
-defaultListener conf (UDPConnection sock) =
-  forever $ do
-    (bs, addr) <- recvFrom sock 512
-    forkIO $ do
-       eResp <- handleQuery conf addr bs
-       case eResp of
-         Right bs -> void $ timeout (3 * 1000 * 1000) (sendAllTo sock bs addr)
-         Left err -> putStrLn err
-
-defaultServer :: ServerConf -> IO ()
-defaultServer conf = getDefaultSockets >>= mapM_ (defaultListener conf)
+defaultServer :: ServerConf -> IO (ThreadId, [ThreadId])
+defaultServer conf = do
+  chan <- newDNSReqToHandleChan
+  defaultSocketList <- getDefaultSockets
+  listThreadListeners <- mapM (defaultListener chan) defaultSocketList
+  threadHandler <- defaultQueryHandler conf chan
+  return (threadHandler, listThreadListeners)

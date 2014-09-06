@@ -15,7 +15,7 @@ module Network.DNS.API
   , sendQueryDefault
     -- * Server side
   , ServerConf(..)
-  , handleQuery
+  , handleRequest
   ) where
 
 import Network.DNS.API.Types
