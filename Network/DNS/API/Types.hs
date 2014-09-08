@@ -24,10 +24,8 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base32 as BSB32
 
-import Data.List (intercalate)
 import Data.Word (Word8)
 import Control.Applicative
-import Control.Monad
 
 ------------------------------------------------------------------------------
 --                                   Response                               --
@@ -160,11 +158,11 @@ encodeURL bs
     guessedLength = BSB32.guessEncodedLength $ B.length bs
 
     splitByNode :: ByteString -> [ByteString]
-    splitByNode bs
-      | B.length bs < 63 = [bs]
+    splitByNode b
+      | (B.length b) < 63 = [b]
       | otherwise = node:(splitByNode xs)
       where
-        (node, xs) = B.splitAt 63 bs
+        (node, xs) = B.splitAt 63 b
 
 -- Decode an URL:
 -- Split the bytestring into node (split at every '.')

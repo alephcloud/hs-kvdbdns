@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE MagicHash, BangPatterns #-}
 -- |
 -- Module      : Data.ByteString.Base32
 -- License     : BSD-Style
@@ -19,8 +20,10 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Data.Word (Word8)
 
-import Control.Monad
 import Control.Applicative
+
+import GHC.Prim
+import GHC.Types
 
 data Base32Reader = Base32Reader
   { bits   :: Word8
@@ -70,17 +73,17 @@ eUpdateBuffer w from to st =
     newBits :: Word8
     newBits = (bits st) .|. (((w `shiftR` shifterR) .&. mask) `shiftL` shifterL)
     newNbRead :: Int
-    newNbRead = (nbRead st) + length
+    newNbRead = (nbRead st) + size
 
     shifterR :: Int
     shifterR = 8 - to
     shifterL :: Int
-    shifterL = 5 - length - (nbRead st)
+    shifterL = 5 - size - (nbRead st)
 
-    length :: Int
-    length = to - from + 1
+    size :: Int
+    size = to - from + 1
     mask :: Word8
-    mask = getMask length
+    mask = getMask size
 
 ------------------------------------------------------------------------------
 --                           Decode a ByteString                            --
@@ -128,19 +131,19 @@ dUpdateBuffer w from to st =
     newBits :: Word8
     newBits = (bits st) .|. (((w `shiftR` shifterR) .&. mask) `shiftL` shifterL)
     newNbRead :: Int
-    newNbRead = (nbRead st) + length
+    newNbRead = (nbRead st) + size
 
     shifterR :: Int
     shifterR = if l < 0 then 0-l else 0
       where l = 3 - (nbRead st)
 
     shifterL :: Int
-    shifterL = 8 - length - (nbRead st)
+    shifterL = 8 - size - (nbRead st)
 
-    length :: Int
-    length = to - from + 1
+    size :: Int
+    size = to - from + 1
     mask :: Word8
-    mask = (getMask length)
+    mask = getMask size
 
 ------------------------------------------------------------------------------
 --                                Helpers                                   --
@@ -159,22 +162,32 @@ getMask n =
     7 -> 0x7F -- 0111 1111
     _ -> 0xFF -- 1111 1111
 
-fromWord8 :: (Monad m, Applicative m) => Word8 -> m Word8
+fromWord8 :: (Monad m, Applicative m)
+          => Word8 -> m Word8
 fromWord8 w =
-  case B.index reverseAlphabet $ fromIntegral w of
-    c | c < 32 -> return c
-    _          -> fail $ "fromWord8: bad input: can't convert " ++ (show w)
+  case fromIntegral $ W# (indexWord8OffAddr# addr i) of
+    c | c /= 0xff -> return c
+    _             -> fail $ "fromWord8: bad input: cannot convert '" ++ (show w) ++ "'"
+  where
+    !(I# i) = fromEnum w
+    !(Table addr) = reverseAlphabet
 
-toWord8 :: (Monad m, Applicative m) => Int -> m Word8
-toWord8 n
-  | n < 32 = return $ B.index alphabet n
-  | otherwise = fail $ "toWord8: bad input: can't convert " ++ (show n)
+toWord8 :: (Monad m, Applicative m)
+        => Int -> m Word8
+toWord8 index
+  | index < 32 = return $ fromIntegral $ W# (indexWord8OffAddr# addr i)
+  | otherwise  = fail $ "toWord8: bad input: cannot convert '" ++ (show index) ++ "'"
+  where
+    !(I# i) = index
+    !(Table addr) = alphabet
 
-alphabet :: ByteString
-alphabet = "0123456789abcdefghijklmnopqrstuv"
+data Table = Table !Addr#
 
-reverseAlphabet :: ByteString
-reverseAlphabet =
+alphabet :: Table
+alphabet = Table "0123456789abcdefghijklmnopqrstuv"#
+
+reverseAlphabet :: Table
+reverseAlphabet = Table
   "\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\
   \\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\
   \\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\
@@ -190,7 +203,7 @@ reverseAlphabet =
   \\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\
   \\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\
   \\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\
-  \\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff"
+  \\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff"#
 
 -- | Guess what could be the encoded length
 --

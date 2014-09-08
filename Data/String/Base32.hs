@@ -16,7 +16,6 @@ module Data.String.Base32
 
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.Char
-import Data.Word (Word8)
 
 encode :: String -> String
 encode []     = []
@@ -145,7 +144,7 @@ decode ( c1: c2: c3: c4: c5: c6: c7: c8: cs)
     o6 = fromChar c6
     o7 = fromChar c7
     o8 = fromChar c8
-decodeString s = error $ "decodeString: bad input: not a base32String: " ++ s
+decode s = error $ "decodeString: bad input: not a base32String: " ++ s
 
 fromChar :: Char -> Int
 fromChar c

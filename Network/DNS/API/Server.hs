@@ -20,7 +20,6 @@ module Network.DNS.API.Server
 
 import Control.Monad (forever, void)
 import System.Timeout
-import Control.Concurrent (forkIO)
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString      as B
@@ -32,7 +31,7 @@ import Data.Monoid (mconcat)
 import Network.DNS hiding (lookup)
 import qualified Network.DNS.API.Types as API
 import Network.Socket hiding (recvFrom, recv)
-import Network.Socket.ByteString (sendAll, sendAllTo, recvFrom, recv)
+import Network.Socket.ByteString (sendAllTo, recvFrom)
 
 import Control.Monad.STM
 import Control.Concurrent
@@ -85,10 +84,10 @@ splitTxt bs
 -- try the query function given in the ServerConf
 -- if it fails, then call the given proxy
 handleRequest :: ServerConf -> SockAddr -> DNSFormat -> IO (Either String ByteString)
-handleRequest conf sender req =
+handleRequest conf addr req =
   case listToMaybe . filterTXT . question $ req of
     Just q -> do
-        mres <- query conf sender $ qname q
+        mres <- query conf addr $ qname q
         case mres of
            Just txt -> return $ Right $ mconcat . SL.toChunks $ encode $ responseTXT q (splitTxt $ API.encodeResponse txt)
            Nothing  -> inFail conf req >>= return.inFailWrapper

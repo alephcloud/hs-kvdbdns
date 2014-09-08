@@ -11,8 +11,6 @@ module Network.DNS.API.Utils
    ( checkEncoding
    ) where
 
-import Network.DNS.API.Types
-
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 
