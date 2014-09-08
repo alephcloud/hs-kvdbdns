@@ -24,8 +24,15 @@ import Debug.Trace
 --                             Property checkers                            --
 ------------------------------------------------------------------------------
 
+assertEq :: (Eq a, Show a) => a -> a -> Bool
+assertEq x y
+  | x == y    = True
+  | otherwise = error $ "error: (" ++ (show x) ++ ") == (" ++ (show y) ++ ")"
+
 prop_encode_bytestring :: ByteString -> Bool
-prop_encode_bytestring s = d1 == d2 && d1 == s
+prop_encode_bytestring s
+  =  assertEq e1 e2
+  && assertEq d2 s
   where
     Just e1 = encode s
     Just d1 = decode e1
