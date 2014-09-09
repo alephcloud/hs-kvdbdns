@@ -252,7 +252,10 @@ defaultServer conf = do
   chan <- newDNSReqToHandleChan
   -- list all the default sockets/ports
   defaultSocketList <- getDefaultSockets >>= return.catMaybes
-  -- start the listerners
-  mapM_ (forkIO . forever . defaultListener chan) defaultSocketList
-  -- start the query Hander
-  forever $ defaultQueryHandler conf chan
+  case defaultSocketList of
+    [] -> error "no default Port: check your configuration file (/etc/services in Debian)"
+    _  -> do
+        -- start the listerners
+        mapM_ (forkIO . forever . defaultListener chan) defaultSocketList
+        -- start the query Hander
+        forever $ defaultQueryHandler conf chan
