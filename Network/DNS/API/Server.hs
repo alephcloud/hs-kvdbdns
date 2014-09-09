@@ -10,12 +10,16 @@
 module Network.DNS.API.Server
   ( -- * Helpers
     ServerConf(..)
+  , createServerConf
   , handleRequest
     -- * defaultServer
   , DNSAPIConnection
   , getDefaultSockets
   , defaultListener
   , defaultServer
+    -- * Create DNSFormat
+  , defaultQuery
+  , defaultResponse
   ) where
 
 import Control.Monad (forever, void)
@@ -47,7 +51,16 @@ data ServerConf = ServerConf
   , inFail  :: DNSFormat -> IO (Either String DNSFormat) -- ^ the method to use to handle query failure
   }
 
--- Default
+-- | Smart constructor for DNS API configuration
+--
+-- Use this function instead of the default one:
+-- > let conf = def :: ServerConf
+-- this method will only refuse every DNS query and will return an error Code : ServFail
+--
+-- you need to replace the @query@ method. The best way to use it is to use this function
+createServerConf :: (SockAddr -> ByteString -> IO (Maybe API.Response)) -> ServerConf
+createServerConf function = def { query = function }
+
 instance Default ServerConf where
     def = ServerConf
       { query   = queryNothing
@@ -113,45 +126,49 @@ handleRequest conf addr req =
             , answer = al
             }
 
-    -- imported from dns:Network/DNS/Internal.hs
-    defaultQuery :: DNSFormat
-    defaultQuery = DNSFormat {
-        header = DNSHeader {
-           identifier = 0
-         , flags = DNSFlags {
-               qOrR         = QR_Query
-             , opcode       = OP_STD
-             , authAnswer   = False
-             , trunCation   = False
-             , recDesired   = True
-             , recAvailable = False
-             , rcode        = NoErr
-             }
-         , qdCount = 0
-         , anCount = 0
-         , nsCount = 0
-         , arCount = 0
+-- | imported from dns:Network/DNS/Internal.hs
+--
+-- use this to get a default DNS format to send a query (if needed)
+defaultQuery :: DNSFormat
+defaultQuery = DNSFormat {
+    header = DNSHeader {
+       identifier = 0
+     , flags = DNSFlags {
+           qOrR         = QR_Query
+         , opcode       = OP_STD
+         , authAnswer   = False
+         , trunCation   = False
+         , recDesired   = True
+         , recAvailable = False
+         , rcode        = NoErr
          }
-      , question   = []
-      , answer     = []
-      , authority  = []
-      , additional = []
-      }
+     , qdCount = 0
+     , anCount = 0
+     , nsCount = 0
+     , arCount = 0
+     }
+  , question   = []
+  , answer     = []
+  , authority  = []
+  , additional = []
+  }
 
-    -- imported from dns:Network/DNS/Internal.hs
-    defaultResponse :: DNSFormat
-    defaultResponse =
-      let hd = header defaultQuery
-          flg = flags hd
-      in  defaultQuery {
-            header = hd {
-              flags = flg {
-                  qOrR = QR_Response
-                , authAnswer = True
-                , recAvailable = True
-                }
-        }
-      }
+-- | imported from dns:Network/DNS/Internal.hs
+--
+-- use this to get a default DNS format to send a response
+defaultResponse :: DNSFormat
+defaultResponse =
+  let hd = header defaultQuery
+      flg = flags hd
+  in  defaultQuery {
+        header = hd {
+          flags = flg {
+              qOrR = QR_Response
+            , authAnswer = True
+            , recAvailable = True
+            }
+    }
+  }
 
 ------------------------------------------------------------------------------
 --                          Internal Queue System                           --
