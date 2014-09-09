@@ -200,14 +200,13 @@ data DNSAPIConnection
     = UDPConnection Socket
     deriving (Show, Eq)
 
-defaultQueryHandler :: ServerConf -> DNSReqToHandleChan -> IO ThreadId
-defaultQueryHandler conf chan =
-  forkIO $ forever $ do
-    dnsReq <- popReqToHandle chan
-    eResp <- handleRequest conf (sender dnsReq) (getReq dnsReq)
-    case eResp of
-      Right bs -> defaultResponder dnsReq bs
-      Left err -> putStrLn err
+defaultQueryHandler :: ServerConf -> DNSReqToHandleChan -> IO ()
+defaultQueryHandler conf chan = do
+  dnsReq <- popReqToHandle chan
+  eResp <- handleRequest conf (sender dnsReq) (getReq dnsReq)
+  case eResp of
+    Right bs -> defaultResponder dnsReq bs
+    Left err -> putStrLn err
   where
     defaultResponder :: DNSReqToHandle -> ByteString -> IO ()
     defaultResponder req resp =
@@ -215,17 +214,14 @@ defaultQueryHandler conf chan =
         UDPConnection sock -> void $ timeout (3 * 1000 * 1000) (sendAllTo sock resp (sender req))
 
 -- | a default server: handle queries for ever
-defaultListener :: DNSReqToHandleChan -> DNSAPIConnection -> IO ThreadId
-defaultListener chan (UDPConnection sock) =
-  -- accept all requests, and then send the raw received bytestring to the queue
-  -- in order to decode it and then treat it
-  forkIO $ forever $ do
-    -- wait to get some request
-    (bs, addr) <- recvFrom sock 512
-    -- Try to decode it, if it works then add it to the queue
-    case decode (SL.fromChunks [bs]) of
-      Left  _   -> return () -- We don't want to throw an error if the command is wrong
-      Right req -> putReqToHandle chan $ DNSReqToHandle (UDPConnection sock) addr req
+defaultListener :: DNSReqToHandleChan -> DNSAPIConnection -> IO ()
+defaultListener chan (UDPConnection sock) = do
+  -- wait to get some request
+  (bs, addr) <- recvFrom sock 512
+  -- Try to decode it, if it works then add it to the queue
+  case decode (SL.fromChunks [bs]) of
+    Left  _   -> return () -- We don't want to throw an error if the command is wrong
+    Right req -> putReqToHandle chan $ DNSReqToHandle (UDPConnection sock) addr req
 
 getDefaultSockets :: (Monad m, Applicative m)
                   => IO [m DNSAPIConnection]
@@ -250,10 +246,13 @@ getDefaultSockets = do
                     Datagram -> pure $ UDPConnection sock
                     _        -> fail $ "Socket Type not handle: " ++ (show addrinfo)
 
-defaultServer :: ServerConf -> IO (ThreadId, [ThreadId])
+defaultServer :: ServerConf -> IO ()
 defaultServer conf = do
+  -- creat a TChan to pass request from the listeners to the handler
   chan <- newDNSReqToHandleChan
+  -- list all the default sockets/ports
   defaultSocketList <- getDefaultSockets >>= return.catMaybes
-  listThreadListeners <- mapM (defaultListener chan) defaultSocketList
-  threadHandler <- defaultQueryHandler conf chan
-  return (threadHandler, listThreadListeners)
+  -- start the listerners
+  mapM_ (forkIO . forever . defaultListener chan) defaultSocketList
+  -- start the query Hander
+  forever $ defaultQueryHandler conf chan

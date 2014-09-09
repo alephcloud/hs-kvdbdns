@@ -29,9 +29,8 @@ main = do
   args <- getArgs
   name <- getProgName
   case args of
-    [dom] -> do _ <- defaultServer (serverConf dom)
-                forever $ threadDelay 10000000000
-    _ -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
+    [dom] -> defaultServer (serverConf dom)
+    _     -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
   where
     serverConf :: String -> ServerConf
     serverConf dom = def { query  = queryDummy (byteStringFromString dom) }
