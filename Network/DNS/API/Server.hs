@@ -22,14 +22,15 @@ module Network.DNS.API.Server
   , defaultResponse
   ) where
 
-import Control.Monad (forever, void)
+import Control.Monad
+import Control.Applicative
 import System.Timeout
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as SL (toChunks, fromChunks)
 import Data.Default
-import Data.Maybe  (listToMaybe)
+import Data.Maybe
 import Data.Monoid (mconcat)
 
 import Network.DNS hiding (lookup)
@@ -223,10 +224,11 @@ defaultListener chan (UDPConnection sock) =
     (bs, addr) <- recvFrom sock 512
     -- Try to decode it, if it works then add it to the queue
     case decode (SL.fromChunks [bs]) of
-      Left msg  -> error $ "DNS.decode: Error: " ++ msg
+      Left  _   -> return () -- We don't want to throw an error if the command is wrong
       Right req -> putReqToHandle chan $ DNSReqToHandle (UDPConnection sock) addr req
 
-getDefaultSockets :: IO [DNSAPIConnection]
+getDefaultSockets :: (Monad m, Applicative m)
+                  => IO [m DNSAPIConnection]
 getDefaultSockets = do
   addrinfos <- getAddrInfo
                    (Just (defaultHints
@@ -240,18 +242,18 @@ getDefaultSockets = do
                    (Just "domain")
   mapM addrInfoToSocket addrinfos
   where
-    addrInfoToSocket :: AddrInfo -> IO DNSAPIConnection
+    addrInfoToSocket :: (Monad m, Applicative m) => AddrInfo -> IO (m DNSAPIConnection)
     addrInfoToSocket addrinfo = do
       sock <- socket (addrFamily addrinfo) (addrSocketType addrinfo) defaultProtocol
       bindSocket sock (addrAddress addrinfo)
       return $ case addrSocketType addrinfo of
-                    Datagram -> UDPConnection sock
-                    _        -> error $ "Socket Type not handle: " ++ (show addrinfo)
+                    Datagram -> pure $ UDPConnection sock
+                    _        -> fail $ "Socket Type not handle: " ++ (show addrinfo)
 
 defaultServer :: ServerConf -> IO (ThreadId, [ThreadId])
 defaultServer conf = do
   chan <- newDNSReqToHandleChan
-  defaultSocketList <- getDefaultSockets
+  defaultSocketList <- getDefaultSockets >>= return.catMaybes
   listThreadListeners <- mapM (defaultListener chan) defaultSocketList
   threadHandler <- defaultQueryHandler conf chan
   return (threadHandler, listThreadListeners)
