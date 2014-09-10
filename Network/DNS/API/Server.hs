@@ -29,7 +29,6 @@ import System.Timeout
 import Data.ByteString (ByteString)
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as SL (toChunks, fromChunks)
-import Data.Default
 import Data.Maybe
 import Data.Monoid (mconcat)
 
@@ -47,8 +46,8 @@ import Control.Concurrent.STM.TChan
 ------------------------------------------------------------------------------
 
 -- | Server configuration
-data ServerConf = ServerConf
-  { query   :: SockAddr -> ByteString -> IO (Maybe API.Response) -- ^ the method to perform a request
+data API.Packable p => ServerConf p = ServerConf
+  { query   :: SockAddr -> ByteString -> IO (Maybe (API.Response p)) -- ^ the method to perform a request
   , inFail  :: DNSFormat -> IO (Either String DNSFormat) -- ^ the method to use to handle query failure
   }
 
@@ -59,18 +58,14 @@ data ServerConf = ServerConf
 -- this method will only refuse every DNS query and will return an error Code : ServFail
 --
 -- you need to replace the @query@ method. The best way to use it is to use this function
-createServerConf :: (SockAddr -> ByteString -> IO (Maybe API.Response)) -> ServerConf
-createServerConf function = def { query = function }
-
-instance Default ServerConf where
-    def = ServerConf
-      { query   = queryNothing
+createServerConf :: API.Packable p
+                 => (SockAddr -> ByteString -> IO (Maybe (API.Response p)))
+                 -> ServerConf p
+createServerConf function =
+   ServerConf
+      { query   = function
       , inFail  = inFailError
       }
-
--- | Default implementation of a query
-queryNothing :: SockAddr -> ByteString -> IO (Maybe API.Response)
-queryNothing _ _ = return Nothing
 
 -- | Default implementation of an inFail
 inFailError :: DNSFormat -> IO (Either String DNSFormat)
@@ -97,7 +92,7 @@ splitTxt bs
 -- Handle a request:
 -- try the query function given in the ServerConf
 -- if it fails, then call the given proxy
-handleRequest :: ServerConf -> SockAddr -> DNSFormat -> IO (Either String ByteString)
+handleRequest :: API.Packable p => ServerConf p -> SockAddr -> DNSFormat -> IO (Either String ByteString)
 handleRequest conf addr req =
   case listToMaybe . filterTXT . question $ req of
     Just q -> do
@@ -200,7 +195,7 @@ data DNSAPIConnection
     = UDPConnection Socket
     deriving (Show, Eq)
 
-defaultQueryHandler :: ServerConf -> DNSReqToHandleChan -> IO ()
+defaultQueryHandler :: API.Packable p => ServerConf p -> DNSReqToHandleChan -> IO ()
 defaultQueryHandler conf chan = do
   dnsReq <- popReqToHandle chan
   eResp <- handleRequest conf (sender dnsReq) (getReq dnsReq)
@@ -246,7 +241,7 @@ getDefaultSockets = do
                     Datagram -> pure $ UDPConnection sock
                     _        -> fail $ "Socket Type not handle: " ++ (show addrinfo)
 
-defaultServer :: ServerConf -> IO ()
+defaultServer :: API.Packable p => ServerConf p -> IO ()
 defaultServer conf = do
   -- creat a TChan to pass request from the listeners to the handler
   chan <- newDNSReqToHandleChan

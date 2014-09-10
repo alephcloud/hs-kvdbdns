@@ -21,32 +21,38 @@ import qualified Data.ByteString as B
 import qualified Network.DNS as DNS
 import Control.Applicative
 
-parseQuery :: Either DNS.DNSError [DNS.RDATA]
-           -> Either DNS.DNSError Response
-parseQuery (Left err) = Left err
-parseQuery (Right l)  = Right $ decodeResponse txt
+parseQuery :: (Monad m, Applicative m, Packable p)
+           => [DNS.RDATA]
+           -> m (Response p)
+parseQuery q =
+  decodeResponse . B.concat =<< mapM toByteString q
   where
-    txt :: ByteString
-    txt = B.concat $ map toByteString l
-
-    toByteString :: DNS.RDATA -> ByteString
-    toByteString (DNS.RD_TXT bs) = bs
-    toByteString d               = error $ "unexpected type: " ++ (show d)
+    toByteString :: (Monad m, Applicative m) => DNS.RDATA -> m ByteString
+    toByteString (DNS.RD_TXT bs) = pure bs
+    toByteString d               = fail $ "unexpected type: " ++ (show d)
 
 -- | Send a TXT query with the given DNS Resolver
-sendQuery :: Encodable a
+sendQuery :: (Monad m, Applicative m, Packable p, Encodable a)
           => DNS.Resolver
           -> a            -- ^ the key/request
-          -> IO (Either DNS.DNSError Response)
+          -> IO (m (Response p))
 sendQuery res q
-  | checkEncoding' = either (\err -> return $ Left err) (\d -> DNS.lookup res d DNS.TXT >>= return.parseQuery) dom
-  | otherwise      = return $ Left DNS.IllegalDomain
+  | checkEncoding' = do l <- dom >>= doLookup
+                        l >>= return . parseQuery
+  | otherwise      = return . fail $ show DNS.IllegalDomain
   where
-    dom :: Either DNS.DNSError DNS.Domain
-    dom = either (\_ -> Left DNS.IllegalDomain) (pure) $ encode q
+    dom :: (Monad m, Applicative m) => m DNS.Domain
+    dom = encode q
 
     checkEncoding' :: Bool
-    checkEncoding' = either (\_ -> False) (checkEncoding) dom
+    checkEncoding' = maybe False checkEncoding dom
+
+    doLookup :: (Monad m, Applicative m) => DNS.Domain -> IO (m [DNS.RDATA])
+    doLookup d = do
+      result <- DNS.lookup res d DNS.TXT :: IO (Either DNS.DNSError [DNS.RDATA])
+      return $ case result of
+        Left err -> fail $ show err
+        Right l  -> pure l
 
 -- | Send a TXT query with the default DNS Resolver
 --
@@ -57,9 +63,9 @@ sendQuery res q
 --    DNS.withResolver rs $
 --           \resolver -> sendQuery resolver dom
 -- @
-sendQueryDefault :: Encodable a
+sendQueryDefault :: (Monad m, Applicative m, Packable p, Encodable a)
                  => a
-                 -> IO (Either DNS.DNSError Response)
+                 -> IO (m (Response p))
 sendQueryDefault dom = do
     rs <- DNS.makeResolvSeed DNS.defaultResolvConf
     DNS.withResolver rs $ \resolver -> sendQuery resolver dom

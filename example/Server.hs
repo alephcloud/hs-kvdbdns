@@ -32,8 +32,8 @@ main = do
     [dom] -> defaultServer (serverConf dom)
     _     -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
   where
-    serverConf :: String -> ServerConf
-    serverConf dom = def { query  = queryDummy (byteStringFromString dom) }
+    serverConf :: String -> ServerConf ByteString
+    serverConf dom = createServerConf (queryDummy (byteStringFromString dom))
 
     byteStringFromString :: [Char] -> ByteString
     byteStringFromString s = S.pack $ map (fromIntegral.ord) s
@@ -60,7 +60,7 @@ exampleDB =
 -- * db  : return $ the result of a lookup in the database
 --
 -- This actual example just ignore who sent it.
-queryDummy :: ByteString -> a -> ByteString -> IO (Maybe API.Response)
+queryDummy :: ByteString -> a -> ByteString -> IO (Maybe (API.Response ByteString))
 queryDummy dom _ req =
   maybe
     (return Nothing)
@@ -70,10 +70,10 @@ queryDummy dom _ req =
     request :: Maybe ExampleRequest
     request = API.decode dom req
 
-    sign :: ByteString -> ByteString -> API.Response
+    sign :: ByteString -> ByteString -> API.Response ByteString
     sign n t = API.Response { signature = n, response = t }
 
-    treatRequest :: API.ExampleRequest -> IO (Maybe API.Response)
+    treatRequest :: API.ExampleRequest -> IO (Maybe (API.Response ByteString))
     treatRequest r =
       return $ case command $ API.cmd r of
                   "echo" -> Just $ sign (API.nonce r) (param $ API.cmd r)

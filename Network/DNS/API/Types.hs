@@ -21,7 +21,8 @@ module Network.DNS.API.Types
   ) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as B
+import qualified Data.ByteString        as B
+import qualified Data.ByteString.Char8  as BC
 import qualified Data.ByteString.Base32 as BSB32
 
 import Data.Word (Word8)
@@ -32,25 +33,23 @@ import Control.Applicative
 ------------------------------------------------------------------------------
 
 -- | The response data that will be return to the requester
-data Response = Response
-  { response  :: ByteString
+data Packable p => Response p = Response
+  { response  :: p
   , signature :: ByteString
   } deriving (Show, Eq)
 
-encodeResponse :: Response -> ByteString
-encodeResponse resp = B.concat [sigLength, sig, txt]
+encodeResponse :: Packable p => Response p -> ByteString
+encodeResponse resp = B.concat [sigLength, sig, pack txt]
   where
     sigLength :: ByteString
     sigLength = B.pack [fromIntegral $ B.length sig]
     txt = response  resp
     sig = signature resp
 
-decodeResponse :: ByteString -> Response
+decodeResponse :: (Monad m, Applicative m, Packable p)
+               => ByteString -> m (Response p)
 decodeResponse bs =
-  Response
-    { response  = txt
-    , signature = sig
-    }
+  unpack txt >>= \t -> pure $ Response { response  = t, signature = sig }
   where
     sigLength :: Int
     sigLength = fromIntegral $ B.head bs
@@ -58,7 +57,7 @@ decodeResponse bs =
     txt = B.drop (1 + sigLength) bs
 
 ------------------------------------------------------------------------------
---                                 Request                                  --
+--                                Encodable                                 --
 ------------------------------------------------------------------------------
 
 -- | This is the main type to implement to make your requests encodable
@@ -70,8 +69,12 @@ class Encodable a where
   encode :: (Monad m, Applicative m) => a -> m ByteString
   decode :: (Monad m, Applicative m) => ByteString -> ByteString -> m a
 
+instance Encodable ByteString where
+  encode   = encodeURL
+  decode _ = decodeURL
+
 ------------------------------------------------------------------------------
---                          Encodable request                               --
+--                              Request                                     --
 ------------------------------------------------------------------------------
 
 -- | This is the main structure that describes a DNS request
@@ -90,26 +93,36 @@ class Encodable a where
 --
 -- And to use it quickly:
 -- > encode $ DNSRequest "alephcloud.com." ("hello words!" :: ByteString) "0123456789"
-data Request p = Request
+data Packable p => Request p = Request
   { domain :: ByteString -- ^ the DNS-Server Domain Name
   , cmd    :: p          -- ^ the command
   , nonce  :: ByteString -- ^ a nonce to sign the Response
   } deriving (Show, Eq)
+
+instance (Packable p) => Encodable (Request p) where
+  encode = encodeRequest
+  decode = decodeRequest
 
 -- | This represent a packable
 --
 -- It is use to pack/unpack (into bytestring) a command in the case of the
 -- proposed Request
 class Packable p where
-  pack :: p -> ByteString
+  pack   :: p -> ByteString
   unpack :: (Monad m, Applicative m) => ByteString -> m p
 
 instance Packable ByteString where
-  pack = id
+  pack   = id
   unpack = pure.id
 
-instance (Packable p) => Encodable (Request p) where
-  encode req = B.concat <$> sequence [encoded, pure $ B.pack [0x2E], pure $ domain req]
+instance Packable String where
+  pack   = BC.pack
+  unpack = pure . BC.unpack
+
+encodeRequest :: (Monad m, Applicative m, Packable p)
+              => Request p -> m ByteString
+encodeRequest req =
+  B.concat <$> sequence [encoded, pure $ B.pack [0x2E], pure $ domain req]
     where
       encoded :: (Monad m, Applicative m) => m ByteString
       encoded =
@@ -123,28 +136,27 @@ instance (Packable p) => Encodable (Request p) where
                               , cmdBS
                               ]
 
-  decode dom bs =
-      Request
-        <$> pure dom
-        <*> (unpack =<< command)
-        <*> ((\l s -> (B.take l $ B.drop 1 s)) <$> nonceSize <*> decoded)
-    where
-      decoded :: (Monad m, Applicative m) => m ByteString
-      decoded = decode dom $ B.take (B.length bs - B.length dom - 1) bs
+decodeRequest :: (Monad m, Applicative m, Packable p)
+              => ByteString -> ByteString
+              -> m (Request p)
+decodeRequest dom bs =
+    Request
+      <$> pure dom
+      <*> (unpack =<< command)
+      <*> ((\l s -> (B.take l $ B.drop 1 s)) <$> nonceSize <*> decoded)
+  where
+    decoded :: (Monad m, Applicative m) => m ByteString
+    decoded = decode dom $ B.take (B.length bs - B.length dom - 1) bs
 
-      nonceSize :: (Monad m, Applicative m) => m Int
-      nonceSize = (fromIntegral . B.head) <$> decoded
+    nonceSize :: (Monad m, Applicative m) => m Int
+    nonceSize = (fromIntegral . B.head) <$> decoded
 
-      commandAndSize :: (Monad m, Applicative m) => m ByteString
-      commandAndSize = (\l s -> B.drop (l + 1) s) <$> nonceSize <*> decoded
-      command :: (Monad m, Applicative m) => m ByteString
-      command = (B.drop 1) <$> commandAndSize
+    commandAndSize :: (Monad m, Applicative m) => m ByteString
+    commandAndSize = (\l s -> B.drop (l + 1) s) <$> nonceSize <*> decoded
+    command :: (Monad m, Applicative m) => m ByteString
+    command = (B.drop 1) <$> commandAndSize
 
-instance Encodable ByteString where
-  encode = encodeURL
-  decode _ = decodeURL
-
--- Encode a bytestring and split it in node of size 63 (or less)
+-- Encode a bytestring and split it in nodes of size 63 (or less)
 -- then intercalate the node separator '.'
 encodeURL :: (Monad m, Applicative m)
           => ByteString -> m ByteString
@@ -165,10 +177,7 @@ encodeURL bs
         (node, xs) = B.splitAt 63 b
 
 -- Decode an URL:
--- Split the bytestring into node (split at every '.')
--- and then decode the result
+-- Split the bytestring into nodes (split at every '.')
+-- and then concat and decode the result
 decodeURL :: (Monad m, Applicative m) => ByteString -> m ByteString
-decodeURL bs = BSB32.decode fusion
-  where
-    fusion :: ByteString
-    fusion = B.concat $ B.split 0x2E bs
+decodeURL bs = BSB32.decode $ B.concat $ B.split 0x2E bs

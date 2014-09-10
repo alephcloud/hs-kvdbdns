@@ -30,9 +30,9 @@ main = do
                   , cmd = Command (byteStringFromString c) (byteStringFromString p)
                   , nonce = B.pack [1..12]
                   }
-      list <- sendQueryDefault req
-      case list of
-        Left err -> error $ show err
+      rep <- sendQueryDefault req :: IO (Either String (Response ByteString))
+      case rep of
+        Left err -> error  err
         Right re -> do print $ "nonce == signature ? " ++ (show $ (signature re) == (B.pack [1..12]))
                        print re
     _ -> putStrLn $ "usage: " ++ name ++ " <domain> <echo|db> <param>"
