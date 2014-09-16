@@ -23,6 +23,8 @@ import API
 import System.Environment
 import Control.Monad
 import Control.Concurrent
+import Control.Monad.Except
+import Data.Functor.Identity
 
 main :: IO ()
 main = do
@@ -61,15 +63,12 @@ exampleDB =
 --
 -- This actual example just ignore who sent it.
 queryDummy :: ByteString -> a -> ByteString -> IO (Maybe (API.Response ByteString))
-queryDummy dom _ req =
-  maybe
-    (return Nothing)
-    (treatRequest)
-    request
+queryDummy dom _ req = do
+  let eReq = runIdentity $ runExceptT $ API.decode dom req :: Either String ExampleRequest
+  case eReq of
+    Left err -> return Nothing
+    Right r  -> treatRequest r
   where
-    request :: Maybe ExampleRequest
-    request = API.decode dom req
-
     sign :: ByteString -> ByteString -> API.Response ByteString
     sign n t = API.Response { signature = n, response = t }
 

@@ -35,18 +35,16 @@ data Base32Reader = Base32Reader
 --                           Encode a ByteString                            --
 ------------------------------------------------------------------------------
 
-encode :: (Monad m, Applicative m)
-       => ByteString
-       -> m ByteString
+encode :: ByteString
+       -> Either String ByteString
 encode bs = B.pack.reverse.result <$> (eFlushBuffer =<< B.foldl encoder state bs)
   where
-    state :: (Monad m, Applicative m) => m Base32Reader
-    state = return $ Base32Reader { bits = 0x00, nbRead = 0, result = [] }
+    state :: Either String Base32Reader
+    state = Right $ Base32Reader { bits = 0x00, nbRead = 0, result = [] }
 
-encoder :: (Monad m, Applicative m)
-        => m Base32Reader
+encoder :: Either String Base32Reader
         -> Word8
-        -> m Base32Reader
+        -> Either String Base32Reader
 encoder mst w =
   mst >>= \st ->
   case nbRead st of
@@ -55,20 +53,18 @@ encoder mst w =
     2 -> eUpdateBuffer w 1 3 st >>= eFlushBuffer >>= eUpdateBuffer w 4 8 >>= eFlushBuffer
     3 -> eUpdateBuffer w 1 2 st >>= eFlushBuffer >>= eUpdateBuffer w 3 7 >>= eFlushBuffer >>= eUpdateBuffer w 8 8
     4 -> eUpdateBuffer w 1 1 st >>= eFlushBuffer >>= eUpdateBuffer w 2 6 >>= eFlushBuffer >>= eUpdateBuffer w 7 8
-    _ -> fail $ "encoder: got a read size of: " ++ (show $ nbRead st)
+    _ -> Left $ "encoder: got a read size of: " ++ (show $ nbRead st)
 
-eFlushBuffer :: (Monad m, Applicative m)
-             => Base32Reader -> m Base32Reader
+eFlushBuffer :: Base32Reader -> Either String Base32Reader
 eFlushBuffer st =  (\c -> Base32Reader { bits = 0, nbRead = 0, result = c:(result st) }) <$> (toWord8 $ fromIntegral $ bits st)
 
-eUpdateBuffer :: (Monad m, Applicative m)
-              => Word8
+eUpdateBuffer :: Word8
               -> Int
               -> Int
               -> Base32Reader
-              -> m Base32Reader
+              -> Either String Base32Reader
 eUpdateBuffer w from to st =
-  return $ st { bits = newBits, nbRead = newNbRead }
+  Right $ st { bits = newBits, nbRead = newNbRead }
   where
     newBits :: Word8
     newBits = (bits st) .|. (((w `shiftR` shifterR) .&. mask) `shiftL` shifterL)
@@ -89,18 +85,16 @@ eUpdateBuffer w from to st =
 --                           Decode a ByteString                            --
 ------------------------------------------------------------------------------
 
-decode :: (Monad m, Applicative m)
-       => ByteString
-       -> m ByteString
+decode :: ByteString
+       -> Either String ByteString
 decode bs = B.pack.reverse.result <$> B.foldl decoder state bs
   where
-    state :: (Monad m, Applicative m) => m Base32Reader
-    state = return $ Base32Reader { bits = 0x00, nbRead = 0, result = [] }
+    state :: Either String Base32Reader
+    state = Right $ Base32Reader { bits = 0x00, nbRead = 0, result = [] }
 
-decoder :: (Monad m, Applicative m)
-        => m Base32Reader
+decoder :: Either String Base32Reader
         -> Word8
-        -> m Base32Reader
+        -> Either String Base32Reader
 decoder mst c =
   mst >>= \st -> fromWord8 c >>= \w ->
   case nbRead st of
@@ -112,21 +106,19 @@ decoder mst c =
     5 -> dUpdateBuffer w 4 6 st >>= dFlushBuffer >>= dUpdateBuffer w 7 8
     6 -> dUpdateBuffer w 4 5 st >>= dFlushBuffer >>= dUpdateBuffer w 6 8
     7 -> dUpdateBuffer w 4 4 st >>= dFlushBuffer >>= dUpdateBuffer w 5 8
-    _ -> fail $ "decoder: got to readsize of: " ++ (show $ nbRead st) -- this should not happen
+    _ -> Left $ "decoder: got to readsize of: " ++ (show $ nbRead st) -- this should not happen
 
-dFlushBuffer :: (Monad m, Applicative m)
-             => Base32Reader -> m Base32Reader
+dFlushBuffer :: Base32Reader -> Either String Base32Reader
 dFlushBuffer st =
-    (return $ st { bits = 0, nbRead = 0, result = (bits st):(result st) })
+    Right $ st { bits = 0, nbRead = 0, result = (bits st):(result st) }
 
-dUpdateBuffer :: (Monad m, Applicative m)
-              => Word8
+dUpdateBuffer :: Word8
               -> Int
               -> Int
               -> Base32Reader
-              -> m Base32Reader
+              -> Either String Base32Reader
 dUpdateBuffer w from to st =
-  return $ st { bits = newBits, nbRead = newNbRead }
+  Right $ st { bits = newBits, nbRead = newNbRead }
   where
     newBits :: Word8
     newBits = (bits st) .|. (((w `shiftR` shifterR) .&. mask) `shiftL` shifterL)
@@ -162,21 +154,19 @@ getMask n =
     7 -> 0x7F -- 0111 1111
     _ -> 0xFF -- 1111 1111
 
-fromWord8 :: (Monad m, Applicative m)
-          => Word8 -> m Word8
+fromWord8 :: Word8 -> Either String Word8
 fromWord8 w =
   case fromIntegral $ W# (indexWord8OffAddr# addr i) of
-    c | c /= 0xff -> return c
-    _             -> fail $ "fromWord8: bad input: cannot convert '" ++ (show w) ++ "'"
+    c | c /= 0xff -> Right c
+    _             -> Left $ "fromWord8: bad input: cannot convert '" ++ (show w) ++ "'"
   where
     !(I# i) = fromEnum w
     !(Table addr) = reverseAlphabet
 
-toWord8 :: (Monad m, Applicative m)
-        => Int -> m Word8
+toWord8 :: Int -> Either String Word8
 toWord8 index
-  | index < 32 = return $ fromIntegral $ W# (indexWord8OffAddr# addr i)
-  | otherwise  = fail $ "toWord8: bad input: cannot convert '" ++ (show index) ++ "'"
+  | index < 32 = Right $ fromIntegral $ W# (indexWord8OffAddr# addr i)
+  | otherwise  = Left $ "toWord8: bad input: cannot convert '" ++ (show index) ++ "'"
   where
     !(I# i) = index
     !(Table addr) = alphabet

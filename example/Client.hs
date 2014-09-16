@@ -13,6 +13,7 @@ import Network.DNS.API.Client
 import Network.DNS.API.Types
 
 import API
+import Control.Monad.Except
 
 import Data.Char   (ord)
 import Data.Word (Word8)
@@ -32,7 +33,7 @@ main = do
                   , nonce = B.pack [1..12]
                   }
       rs <- makeResolvSeedSafe (Just $ BS.pack d) Nothing Nothing
-      rep <- sendQueryDefaultTo rs req :: IO (Either String (Response ByteString))
+      rep <- runExceptT $ sendQueryDefaultTo rs req :: IO (Either String (Response ByteString))
       case rep of
         Left err -> error  err
         Right re -> do print $ "nonce == signature ? " ++ (show $ (signature re) == (B.pack [1..12]))

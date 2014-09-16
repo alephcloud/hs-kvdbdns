@@ -11,8 +11,11 @@ module Network.DNS.API.Utils
    ( checkEncoding
    ) where
 
+import Network.DNS.API.Types
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
+import Control.Monad.Except
+import Data.Maybe (isJust)
 
 -- | Check that the given bytestring (the Domain) respect some rules:
 --
@@ -20,17 +23,18 @@ import qualified Data.ByteString.Char8 as B
 -- 2. node's length < 64
 -- 3. char are elem of [a-z0-9.-]
 checkEncoding :: ByteString
-              -> Bool
-checkEncoding bs
-  =  fullLength
-  && nodeLengths
-  && checkAlphabet
+              -> Dns ByteString
+checkEncoding bs = fullLength bs >>= nodeLengths >>= checkAlphabet
   where
-    fullLength :: Bool
-    fullLength = B.length bs < 256
+    fullLength :: ByteString -> Dns ByteString
+    fullLength b
+        | B.length bs < 256 = return b
+        | otherwise = throwError "Network.DNS.API.Utils: checkEncoding: URL too long"
     
-    checkAlphabet :: Bool
-    checkAlphabet = B.foldr checkWord8 True bs
+    checkAlphabet :: ByteString -> Dns ByteString
+    checkAlphabet b 
+        | B.foldr checkWord8 True bs = return b
+        | otherwise = throwError "Network.DNS.API.Utils: checkEncoding: URL contains non-base32-encoded char"
 
     checkWord8 :: Char -> Bool -> Bool
     checkWord8 _ False = False
@@ -40,8 +44,10 @@ checkEncoding bs
         | c == '.' || c == '-' = True
         | otherwise = False
 
-    nodeLengths :: Bool
-    nodeLengths = maybe False (\_ -> True) $ B.foldr checkNodeW (Just 0) bs
+    nodeLengths :: ByteString -> Dns ByteString
+    nodeLengths b
+        | isJust $ B.foldr checkNodeW (Just 0) b = return b
+        | otherwise = throwError "Network.DNS.API.Utils: checkEncoding: URL contains too long labels"
 
     checkNodeW :: Char -> Maybe Int -> Maybe Int
     checkNodeW _ Nothing  = Nothing

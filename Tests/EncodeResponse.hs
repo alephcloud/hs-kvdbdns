@@ -22,6 +22,9 @@ import ArbitraryByteString
 
 import Network.DNS.API.Types
 
+import Control.Monad.Except
+import Data.Functor.Identity
+
 instance Arbitrary (Response ByteString) where
   arbitrary =
     let genTxt = arbitrary :: Gen ByteString
@@ -33,9 +36,12 @@ instance Arbitrary (Response ByteString) where
       return $ Response txt sig
 
 prop_encode_response :: Response ByteString -> Bool
-prop_encode_response resp
-  =  d1 == d2
-  && d2 == resp
+prop_encode_response resp = do
+  case encodeDecode resp of
+    Left err -> error err
+    Right d1 ->
+      case encodeDecode d1 of
+        Left err -> error err
+        Right d2 -> d1 == d2 && d2 == resp
   where
-    Just d1 = decodeResponse $ encodeResponse resp
-    Just d2 = decodeResponse $ encodeResponse d1
+    encodeDecode d = runIdentity $ runExceptT $ decodeResponse $ encodeResponse d

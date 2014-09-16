@@ -25,6 +25,10 @@ import ArbitraryByteString
 
 import Network.DNS.API.Utils
 
+import Control.Monad.Except
+import System.IO.Unsafe
+import Data.Functor.Identity
+
 data TestRequest = TestRequest (Request ByteString) ByteString
   deriving (Show, Eq)
 
@@ -44,12 +48,13 @@ instance Arbitrary TestRequest where
       return $ TestRequest req dom
 
 prop_encode_request :: TestRequest -> Bool
-prop_encode_request (TestRequest req dom)
-  =  d1 == d2
-  && d2 == req
-  && (checkEncoding e1 || 255 < B.length e1)
-  where
-    Just e1 = encode req
-    Just d1 = decode dom e1
-    Just e2 = encode d1
-    Just d2 = decode dom e2
+prop_encode_request (TestRequest req dom) =
+  let e1 = encodeOrError req
+      d1 = decodeOrError dom e1
+      e2 = encodeOrError d1
+      d2 = decodeOrError dom e2
+      encoding = either error (\_ -> True) $ runIdentity $ runExceptT $ checkEncoding e1
+  in  d1 == d2 && d2 == req && encoding
+
+encodeOrError d = either error id $ runIdentity $ runExceptT $ encode d
+decodeOrError dom d = either error id $ runIdentity $ runExceptT $ decode dom d

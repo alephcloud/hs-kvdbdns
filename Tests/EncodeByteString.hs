@@ -34,13 +34,16 @@ prop_encode_bytestring s
   =  assertEq e1 e2
   && assertEq d2 s
   where
-    Just e1 = encode s
-    Just d1 = decode e1
-    Just e2 = encode d1
-    Just d2 = decode e2
+    e1 = encodeOrError s
+    d1 = decodeOrError e1
+    e2 = encodeOrError d1
+    d2 = decodeOrError e2
 
 prop_guess_encoded_length :: ByteString -> Bool
 prop_guess_encoded_length s = (guess - B.length e) < 8
   where
-    Just e = encode s
+    e = encodeOrError s
     guess = guessEncodedLength $ B.length s
+
+encodeOrError d = either error id $ encode d
+decodeOrError d = either error id $ decode d
