@@ -12,10 +12,14 @@ module Network.DNS.API.Client
     , sendQueryDefault
     , sendQueryDefaultTo
     , makeResolvSeedSafe
+      -- * Other needed types
+    , PortNumber
+    , DNS.ResolvSeed
     ) where
 
 import Network.DNS.API.Types
 import Network.DNS.API.Utils
+import Network.Socket (PortNumber)
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
@@ -76,27 +80,34 @@ sendQueryDefaultTo seed req = do
 
 -- | Create the ResolvSeed using the given parameters
 --
--- Let Nothing to all the parameter to use the default options
+-- Let Nothing to all the parameters to use the default options
 -- If you want to contact directly a DNS Server, then this function
 -- will first resolv its IPv4 Addr using the default DNS ResolvConf
 --
 -- If it fails to resolv the HostName, then this function return the
 -- default Resolv Seed (with the given timout and retry options)
+--
+-- If you are using this function to connect to a DNS Server in the case
+-- you have not Domain Name Service running on your machine: this function
+-- may fail.
 makeResolvSeedSafe :: Maybe ByteString -- ^ the DNS Server to contact
+                   -> Maybe PortNumber -- ^ port number
                    -> Maybe Int        -- ^ timeout
                    -> Maybe Int        -- ^ retry
                    -> IO DNS.ResolvSeed
-makeResolvSeedSafe mhn mto mr = do
+makeResolvSeedSafe mhn mport mto mr = do
   rs <- DNS.makeResolvSeed resolvConf
   case mhn of
     Nothing -> return rs
     Just hn -> do
       result <- DNS.withResolver rs $ \resolver -> DNS.lookupA resolver hn
       case result of
-        Right (a:_) -> tryAny (DNS.makeResolvSeed $ resolvConf { DNS.resolvInfo = DNS.RCHostName $ show a })
+        Right (a:_) -> tryAny (DNS.makeResolvSeed $ resolvConf { DNS.resolvInfo = resolvInfo $ show a })
                               (\_ -> return rs)
         _           -> return rs
   where
+    resolvInfo :: String -> DNS.FileOrNumericHost
+    resolvInfo s = maybe (DNS.RCHostName s) (\p -> DNS.RCHostPort s p) mport
     resolvConf :: DNS.ResolvConf
     resolvConf = let r1 = DNS.defaultResolvConf
                      r2 = maybe r1 (\to -> r1 { DNS.resolvTimeout = to }) mto
