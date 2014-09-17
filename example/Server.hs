@@ -15,6 +15,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString      as S
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Maybe
 
 import Network.DNS.API.Server
 import qualified Network.DNS.API.Types as API
@@ -31,7 +32,8 @@ main = do
   args <- getArgs
   name <- getProgName
   case args of
-    [dom] -> defaultServer (serverConf dom)
+    [dom] -> do sl <- getDefaultSockets (Just "8053") >>= return.catMaybes
+                defaultServer (serverConf dom) sl
     _     -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
   where
     serverConf :: String -> ServerConf ByteString
@@ -58,8 +60,8 @@ exampleDB =
 
 -- | example of query manager
 -- handle two commands:
--- * echo: return $ Just $ "nonce" ++ ';' ++ "param"
--- * db  : return $ the result of a lookup in the database
+-- * echo: the param
+-- * db  : return the DB
 --
 -- This actual example just ignore who sent it.
 queryDummy :: ByteString -> a -> ByteString -> IO (Maybe (API.Response ByteString))

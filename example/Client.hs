@@ -7,7 +7,7 @@
 -- Stability   : experimental
 -- Portability : unknown
 --
-
+{-# LANGUAGE OverloadedStrings #-}
 import System.Environment
 import Network.DNS.API.Client
 import Network.DNS.API.Types
@@ -21,6 +21,9 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS
 
+uniqueNonce :: ByteString
+uniqueNonce = "nonce"
+
 main :: IO ()
 main = do
   args <- getArgs
@@ -30,12 +33,12 @@ main = do
       let req = Request
                   { domain = BS.pack d
                   , cmd = Command (BS.pack c) (BS.pack p)
-                  , nonce = B.pack [1..12]
+                  , nonce = uniqueNonce
                   }
-      rs <- makeResolvSeedSafe (Just $ BS.pack d) Nothing Nothing
+      rs <- makeResolvSeedSafe (Just $ BS.pack d) (Just $ fromIntegral 8053) Nothing Nothing
       rep <- runExceptT $ sendQueryDefaultTo rs req :: IO (Either String (Response ByteString))
       case rep of
-        Left err -> error  err
-        Right re -> do print $ "nonce == signature ? " ++ (show $ (signature re) == (B.pack [1..12]))
+        Left err -> error $ "exmaple.Client: " ++ err
+        Right re -> do print $ "nonce == signature ? " ++ (show $ (signature re) == uniqueNonce)
                        print re
     _ -> putStrLn $ "usage: " ++ name ++ " <domain> <echo|db> <param>"
