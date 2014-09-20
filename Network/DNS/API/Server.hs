@@ -12,9 +12,9 @@ module Network.DNS.API.Server
     ServerConf(..)
   , createServerConf
   , handleRequest
+  , Connection(getContext, getSockAddr, getCreationDate, getLastUsedDate, setKeepOpen)
     -- * defaultServer
-  , DNSAPIConnection(..)
-  , getDefaultSockets
+  , getDefaultConnections
   , defaultServer
     -- * Create DNSFormat
   , defaultQuery
@@ -23,7 +23,6 @@ module Network.DNS.API.Server
 
 import Control.Monad
 import Control.Applicative
-import System.Timeout
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString      as B
@@ -33,8 +32,9 @@ import Data.Monoid (mconcat)
 
 import Network.DNS hiding (lookup)
 import qualified Network.DNS.API.Types as API
+import Network.DNS.API.Connection (Connection)
+import qualified Network.DNS.API.Connection as API
 import Network.Socket hiding (recvFrom, recv, send)
-import Network.Socket.ByteString (sendAllTo, recvFrom, recv, send)
 
 import Control.Monad.STM
 import Control.Concurrent
@@ -45,9 +45,12 @@ import Control.Concurrent.STM.TChan
 ------------------------------------------------------------------------------
 
 -- | Server configuration
-data API.Packable p => ServerConf p = ServerConf
-  { query   :: SockAddr -> ByteString -> IO (Maybe (API.Response p)) -- ^ the method to perform a request
-  , inFail  :: DNSFormat -> IO (Either String DNSFormat) -- ^ the method to use to handle query failure
+data API.Packable p => ServerConf context p = ServerConf
+  { query :: Connection context
+          -> ByteString
+          -> IO (Maybe (API.Response p)) -- ^ the method to perform a request
+  , inFail :: DNSFormat
+           -> IO (Either String DNSFormat) -- ^ the method to use to handle query failure
   }
 
 -- | Smart constructor for DNS API configuration
@@ -58,8 +61,8 @@ data API.Packable p => ServerConf p = ServerConf
 --
 -- you need to replace the @query@ method. The best way to use it is to use this function
 createServerConf :: API.Packable p
-                 => (SockAddr -> ByteString -> IO (Maybe (API.Response p)))
-                 -> ServerConf p
+                 => (Connection a -> ByteString -> IO (Maybe (API.Response p)))
+                 -> ServerConf a p
 createServerConf function =
    ServerConf
       { query   = function
@@ -91,11 +94,11 @@ splitTxt bs
 -- Handle a request:
 -- try the query function given in the ServerConf
 -- if it fails, then call the given proxy
-handleRequest :: API.Packable p => ServerConf p -> SockAddr -> DNSFormat -> IO (Either String ByteString)
-handleRequest conf addr req =
+handleRequest :: API.Packable p => ServerConf a p -> Connection a -> DNSFormat -> IO (Either String ByteString)
+handleRequest conf conn req =
   case listToMaybe . filterTXT . question $ req of
     Just q -> do
-        mres <- query conf addr $ qname q
+        mres <- query conf conn $ qname q
         case mres of
            Just txt -> return $ Right $ mconcat . SL.toChunks $ encode $ responseTXT q (splitTxt $ API.encodeResponse txt)
            Nothing  -> inFail conf req >>= return.inFailWrapper
@@ -169,78 +172,71 @@ defaultResponse =
 --                          Internal Queue System                           --
 ------------------------------------------------------------------------------
 
-data DNSReqToHandle = DNSReqToHandle
-    { connection :: DNSAPIConnection
-    , sender     :: SockAddr
+data DNSReqToHandle a = DNSReqToHandle
+    { connection :: Connection a
     , getReq     :: DNSFormat
     }
 
-type DNSReqToHandleChan = TChan DNSReqToHandle
+type DNSReqToHandleChan a = TChan (DNSReqToHandle a)
 
-newDNSReqToHandleChan :: IO DNSReqToHandleChan
+newDNSReqToHandleChan :: IO (DNSReqToHandleChan a)
 newDNSReqToHandleChan = atomically $ newTChan
 
-putReqToHandle :: DNSReqToHandleChan -> DNSReqToHandle -> IO ()
+putReqToHandle :: (DNSReqToHandleChan a) -> (DNSReqToHandle a) -> IO ()
 putReqToHandle chan req = atomically $ writeTChan chan req
 
-popReqToHandle :: DNSReqToHandleChan -> IO DNSReqToHandle
+popReqToHandle :: (DNSReqToHandleChan a) -> IO (DNSReqToHandle a)
 popReqToHandle = atomically . readTChan
 
 ------------------------------------------------------------------------------
 --                         Default server: helpers                          --
 ------------------------------------------------------------------------------
 
-data DNSAPIConnection
-    = UDPConnection Socket
-    | TCPConnection Socket
-    deriving (Show, Eq)
-
-defaultQueryHandler :: API.Packable p => ServerConf p -> DNSReqToHandleChan -> IO ()
+defaultQueryHandler :: API.Packable p => ServerConf a p -> DNSReqToHandleChan a -> IO ()
 defaultQueryHandler conf chan = do
   dnsReq <- popReqToHandle chan
-  eResp <- handleRequest conf (sender dnsReq) (getReq dnsReq)
+  eResp <- handleRequest conf (connection dnsReq) (getReq dnsReq)
   case eResp of
-    Right bs -> defaultResponder dnsReq bs
+    Right bs -> defaultResponder (connection dnsReq) bs
     Left err -> putStrLn err
   where
-    defaultResponder :: DNSReqToHandle -> ByteString -> IO ()
-    defaultResponder req resp =
-      case connection req of
-        UDPConnection sock -> void $ timeout (3 * 1000 * 1000) (sendAllTo sock resp (sender req))
-        TCPConnection sock -> do
-            void $ timeout (3 * 1000 * 1000) (send sock resp)
-            close sock
+    defaultResponder :: Connection a -> ByteString -> IO ()
+    defaultResponder conn resp = do
+       API.write conn resp
+       keepOpen <- API.getKeepOpen conn
+       if keepOpen
+         then API.close conn -- TODO: put these requests into a forkIO
+         else API.close conn
 
 -- | a default server: handle queries for ever
-defaultListener :: DNSReqToHandleChan -> DNSAPIConnection -> IO ()
-defaultListener chan (UDPConnection sock) = do
-  -- wait to get some request
-  (bs, addr) <- recvFrom sock 512
-  -- Try to decode it, if it works then add it to the queue
-  case decode (SL.fromChunks [bs]) of
-    Left  _   -> return () -- We don't want to throw an error if the command is wrong
-    Right req -> putReqToHandle chan $ DNSReqToHandle (UDPConnection sock) addr req
-defaultListener chan (TCPConnection sock) = do
-  listen sock 10
+defaultListener :: DNSReqToHandleChan a -> Connection a -> IO ()
+defaultListener chan conn = do
+  -- Listen the given connection
+  API.listen conn 10
   -- TODO: for now block it to no more than 10 connections
   -- start accepting connection:
   forever $ do
     -- wait to get some request
-    (sockClient, addr) <- accept sock
+    client <- API.accept conn
     -- read data
-    bs <- recv sock 512
-    -- Try to decode it, if it works then add it to the queue
-    case decode (SL.fromChunks [bs]) of
-      Left  _   -> return () -- We don't want to throw an error if the command is wrong
-      Right req -> putReqToHandle chan $ DNSReqToHandle (TCPConnection sockClient) addr req
+    mbs <- API.read client 512
+    case mbs of
+      Nothing -> API.close client -- in case of a timeout: ignore the connection
+      Just bs ->
+        -- Try to decode it, if it works then add it to the queue
+        case decode (SL.fromChunks [bs]) of
+          Left  _   -> API.close client -- We don't want to throw an error if the command is wrong
+          Right req -> putReqToHandle chan $ DNSReqToHandle client req
 
 -- | Simple helper to get the default DNS Sockets
 --
 -- all sockets TCP/UDP + IPv4 + port(53)
-getDefaultSockets :: (Monad m, Applicative m)
-                  => Maybe String
-                  -> IO [m DNSAPIConnection]
-getDefaultSockets mport = do
+getDefaultConnections :: (Monad m, Applicative m)
+                      => Maybe String
+                      -> Int -- ^ time out configuration for the connections read/write
+                      -> Maybe a -- ^ the initial context value to use to the created connections
+                      -> IO [m (Connection a)]
+getDefaultConnections mport timeout mcontext = do
   let (mflags, service) = maybe (([], Just "domain")) (\port -> ([AI_NUMERICSERV], Just port)) mport
   addrinfos <- getAddrInfo
                    (Just (defaultHints
@@ -251,22 +247,22 @@ getDefaultSockets mport = do
                    )
                    (Nothing)
                    service
-  mapM addrInfoToSocket addrinfos
-  where
-    addrInfoToSocket :: (Monad m, Applicative m) => AddrInfo -> IO (m DNSAPIConnection)
-    addrInfoToSocket addrinfo
-      | (addrSocketType addrinfo) `notElem` [Datagram, Stream] = return $ fail $ "socket type not supported: " ++ (show addrinfo)
-      | otherwise = do
-          sock <- socket (addrFamily addrinfo) (addrSocketType addrinfo) defaultProtocol
-          bindSocket sock (addrAddress addrinfo)
-          return $ case addrSocketType addrinfo of
-                        Datagram -> pure $ UDPConnection sock
-                        Stream   -> pure $ TCPConnection sock
-                        _        -> fail $ "Socket Type not handle: " ++ (show addrinfo)
+  mapM (addrInfoToSocket timeout mcontext) addrinfos
+
+addrInfoToSocket :: (Monad m, Applicative m) => Int -> Maybe a -> AddrInfo -> IO (m (Connection a))
+addrInfoToSocket timeout mcontext addrinfo
+  | (addrSocketType addrinfo) `notElem` [Datagram, Stream] = return $ fail $ "socket type not supported: " ++ (show addrinfo)
+  | otherwise = do
+      sock <- socket (addrFamily addrinfo) (addrSocketType addrinfo) defaultProtocol
+      bindSocket sock (addrAddress addrinfo)
+      case addrSocketType addrinfo of
+           Datagram -> API.newConnectionUDPServer sock timeout mcontext >>= return.pure
+           Stream   -> API.newConnectionTCPServer sock timeout mcontext >>= return.pure
+           _        -> return $ fail $ "Socket Type not handle: " ++ (show addrinfo)
 
 defaultServer :: API.Packable p
-              => ServerConf p
-              -> [DNSAPIConnection]
+              => ServerConf a p
+              -> [Connection a]
               -> IO ()
 defaultServer _    []       = error $ "Network.DNS.API.Server: defaultServer: list of DNSApiConnection is empty"
 defaultServer conf sockList = do

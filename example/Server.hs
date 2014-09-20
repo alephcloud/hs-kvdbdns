@@ -32,11 +32,11 @@ main = do
   args <- getArgs
   name <- getProgName
   case args of
-    [dom] -> do sl <- getDefaultSockets (Just "8053") >>= return.catMaybes
+    [dom] -> do sl <- getDefaultConnections (Just "8053") (3 * 1000 * 1000) Nothing >>= return.catMaybes
                 defaultServer (serverConf dom) sl
     _     -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
   where
-    serverConf :: String -> ServerConf ByteString
+    serverConf :: String -> ServerConf Int ByteString
     serverConf dom = createServerConf (queryDummy (byteStringFromString dom))
 
     byteStringFromString :: [Char] -> ByteString
@@ -63,10 +63,14 @@ exampleDB =
 -- * echo: the param
 -- * db  : return the DB
 --
--- This actual example just ignore who sent it.
-queryDummy :: ByteString -> a -> ByteString -> IO (Maybe (API.Response ByteString))
-queryDummy dom _ req = do
+-- This actual example just ignore the connection context and information
+queryDummy :: ByteString
+           -> Connection Int
+           -> ByteString
+           -> IO (Maybe (API.Response ByteString))
+queryDummy dom conn req = do
   let eReq = runIdentity $ runExceptT $ API.decode dom req :: Either String ExampleRequest
+  print $ "Connection: " ++ (show $ getSockAddr conn) ++ " opened: " ++ (show $ getCreationDate conn)
   case eReq of
     Left err -> return Nothing
     Right r  -> treatRequest r
