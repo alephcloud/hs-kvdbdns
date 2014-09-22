@@ -23,6 +23,7 @@ import Network.Socket (PortNumber)
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import Data.Hourglass.Types
 
 import qualified Network.DNS as DNS
 
@@ -92,7 +93,7 @@ sendQueryDefaultTo seed req = do
 -- may fail.
 makeResolvSeedSafe :: Maybe ByteString -- ^ the DNS Server to contact
                    -> Maybe PortNumber -- ^ port number
-                   -> Maybe Int        -- ^ timeout
+                   -> Maybe Seconds    -- ^ timeout
                    -> Maybe Int        -- ^ retry
                    -> IO DNS.ResolvSeed
 makeResolvSeedSafe mhn mport mto mr = do
@@ -110,7 +111,7 @@ makeResolvSeedSafe mhn mport mto mr = do
     resolvInfo s = maybe (DNS.RCHostName s) (\p -> DNS.RCHostPort s p) mport
     resolvConf :: DNS.ResolvConf
     resolvConf = let r1 = DNS.defaultResolvConf
-                     r2 = maybe r1 (\to -> r1 { DNS.resolvTimeout = to }) mto
+                     r2 = maybe r1 (\(Seconds to) -> r1 { DNS.resolvTimeout = (fromIntegral to) * 3000 * 3000 }) mto
                  in maybe r2 (\r  -> r2 { DNS.resolvRetry = r }) mr
 
 -- | Send a TXT query with the default DNS Resolver

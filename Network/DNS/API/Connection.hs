@@ -8,7 +8,7 @@
 -- Portability : unknown
 --
 module Network.DNS.API.Connection
-    ( Connection(..)
+    ( Connection (..)
     , newConnectionUDPServer
     , newConnectionTCPServer
     ) where
@@ -52,7 +52,7 @@ updateTimeStamp mvar = do
 --
 -- If an initial context is provided, it will be also used in any accepted Connections
 newConnectionUDPServer :: Socket  -- ^ the socket to wrap up in a Connection
-                       -> Int     -- ^ Timeout in any Read/Write actions
+                       -> Seconds -- ^ Timeout in any Read/Write actions
                        -> Maybe a -- ^ default context: will be use for every accepted connections
                        -> IO (Connection a)
 newConnectionUDPServer sock ttl mc = do
@@ -74,10 +74,11 @@ newConnectionUDPServer sock ttl mc = do
     }
 
 acceptUDPClient :: Socket
-                -> Int
+                -> Seconds
                 -> Maybe a
                 -> IO (Connection a)
-acceptUDPClient sock ttl mc = do
+acceptUDPClient sock (Seconds s) mc = do
+  let ttl = (fromIntegral s) * 1000 * 1000
   mvar <- maybe (newEmptyMVar) (newMVar) mc
   (bs, addr) <- Socket.recvFrom sock 512
   date <- timeCurrent
@@ -98,7 +99,7 @@ acceptUDPClient sock ttl mc = do
 
 -- | Create a new Connection for TCP Server
 newConnectionTCPServer :: Socket  -- ^ the socket to wrap up in a Connection
-                       -> Int     -- ^ ttl
+                       -> Seconds -- ^ ttl
                        -> Maybe a -- ^ an initial value to use in the context of the udp requests
                        -> IO (Connection a)
 newConnectionTCPServer sock ttl mc = do
@@ -120,10 +121,11 @@ newConnectionTCPServer sock ttl mc = do
     }
 
 acceptTCPClient :: Socket
-                -> Int
+                -> Seconds
                 -> Maybe a
                 -> IO (Connection a)
-acceptTCPClient sock ttl mc = do
+acceptTCPClient sock (Seconds s) mc = do
+  let ttl = (fromIntegral s) * 1000 * 1000
   mvar <- maybe (newEmptyMVar) (newMVar) mc
   -- by default we don't want to keep opened connections
   keepOpen <- newMVar False

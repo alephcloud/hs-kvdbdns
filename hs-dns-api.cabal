@@ -63,6 +63,7 @@ Executable           Client
                        , bytestring
                        , hs-dns-api
                        , mtl
+                       , hourglass
     Buildable: True
   else
     Buildable: False
@@ -79,6 +80,7 @@ Executable           Server
                        , mtl
                        , transformers >= 0.4
                        , hs-dns-api
+                       , hourglass
     Buildable: True
   else
     Buildable: False

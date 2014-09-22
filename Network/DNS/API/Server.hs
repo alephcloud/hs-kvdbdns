@@ -27,6 +27,7 @@ import Control.Applicative
 import Data.ByteString (ByteString)
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as SL (toChunks, fromChunks)
+import Data.Hourglass.Types
 import Data.Maybe
 import Data.Monoid (mconcat)
 
@@ -233,7 +234,7 @@ defaultListener chan conn = do
 -- all sockets TCP/UDP + IPv4 + port(53)
 getDefaultConnections :: (Monad m, Applicative m)
                       => Maybe String
-                      -> Int -- ^ time out configuration for the connections read/write
+                      -> Seconds -- ^ for timeout
                       -> Maybe a -- ^ the initial context value to use to the created connections
                       -> IO [m (Connection a)]
 getDefaultConnections mport timeout mcontext = do
@@ -249,7 +250,7 @@ getDefaultConnections mport timeout mcontext = do
                    service
   mapM (addrInfoToSocket timeout mcontext) addrinfos
 
-addrInfoToSocket :: (Monad m, Applicative m) => Int -> Maybe a -> AddrInfo -> IO (m (Connection a))
+addrInfoToSocket :: (Monad m, Applicative m) => Seconds -> Maybe a -> AddrInfo -> IO (m (Connection a))
 addrInfoToSocket timeout mcontext addrinfo
   | (addrSocketType addrinfo) `notElem` [Datagram, Stream] = return $ fail $ "socket type not supported: " ++ (show addrinfo)
   | otherwise = do

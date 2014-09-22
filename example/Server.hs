@@ -13,6 +13,7 @@ import Data.Default (def)
 import Data.Char (ord)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString      as S
+import Data.Hourglass.Types
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -32,7 +33,7 @@ main = do
   args <- getArgs
   name <- getProgName
   case args of
-    [dom] -> do sl <- getDefaultConnections (Just "8053") (3 * 1000 * 1000) Nothing >>= return.catMaybes
+    [dom] -> do sl <- getDefaultConnections (Just "8053") (Seconds 3) Nothing >>= return.catMaybes
                 defaultServer (serverConf dom) sl
     _     -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
   where
