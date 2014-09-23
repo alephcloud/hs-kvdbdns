@@ -17,19 +17,19 @@ module Network.DNS.API.Client
     , DNS.ResolvSeed
     ) where
 
-import Network.DNS.API.Types
-import Network.DNS.API.Utils
-import Network.Socket (PortNumber)
+import Control.Exception
+import Control.Monad.Except
 
+import Data.Byteable
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import Data.Functor.Identity
 import Data.Hourglass.Types
 
 import qualified Network.DNS as DNS
-
-import Control.Exception
-import Control.Monad.Except
-import Data.Functor.Identity
+import Network.DNS.API.Types
+import Network.DNS.API.Utils
+import Network.Socket (PortNumber)
 
 tryAny :: IO a -> (SomeException -> IO a) -> IO a
 tryAny = Control.Exception.catch
@@ -51,10 +51,10 @@ sendQuery :: (Packable p, Encodable a)
           -> a            -- ^ the key/request
           -> DnsIO (Response p)
 sendQuery res q = do
-  case runIdentity $ runExceptT (encode q >>= checkEncoding) of
+  case runIdentity $ runExceptT (encode q >>= validateFQDN) of
     Left err -> throwError err
     Right e -> do
-      r <- doLookup e
+      r <- doLookup $ toBytes e
       either (throwError) (return) $ runIdentity $ runExceptT $ parseQuery r
   where
     doLookup :: DNS.Domain -> DnsIO [DNS.RDATA]

@@ -8,32 +8,33 @@
 -- Portability : unknown
 --
 module Network.DNS.API.Utils
-   ( checkEncoding
+   ( validateFQDN
    ) where
 
-import Network.DNS.API.Types
-import Data.ByteString.Char8 (ByteString)
-import qualified Data.ByteString.Char8 as B
 import Control.Monad.Except
+import Data.Byteable
+import qualified Data.ByteString.Char8 as B
 import Data.Maybe (isJust)
+
+import Network.DNS.API.Types
 
 -- | Check that the given bytestring (the Domain) respect some rules:
 --
 -- 1. fullLength < 256
 -- 2. node's length < 64
 -- 3. char are elem of [a-z0-9.-]
-checkEncoding :: ByteString
-              -> Dns ByteString
-checkEncoding bs = fullLength bs >>= nodeLengths >>= checkAlphabet
+validateFQDN :: FQDNEncoded
+             -> Dns FQDN
+validateFQDN invalidefqdn = fullLength invalidefqdn >>= nodeLengths >>= checkAlphabet >>= return . unsafeToFQDN
   where
-    fullLength :: ByteString -> Dns ByteString
-    fullLength b
-        | B.length bs < 256 = return b
+    fullLength :: FQDNEncoded -> Dns FQDNEncoded
+    fullLength fqdn
+        | (B.length $ toBytes fqdn) < 256 = return fqdn
         | otherwise = throwError "Network.DNS.API.Utils: checkEncoding: URL too long"
     
-    checkAlphabet :: ByteString -> Dns ByteString
-    checkAlphabet b 
-        | B.foldr checkWord8 True bs = return b
+    checkAlphabet :: FQDNEncoded -> Dns FQDNEncoded
+    checkAlphabet fqdn
+        | B.foldr checkWord8 True $ toBytes fqdn = return fqdn
         | otherwise = throwError "Network.DNS.API.Utils: checkEncoding: URL contains non-base32-encoded char"
 
     checkWord8 :: Char -> Bool -> Bool
@@ -44,9 +45,9 @@ checkEncoding bs = fullLength bs >>= nodeLengths >>= checkAlphabet
         | c == '.' || c == '-' = True
         | otherwise = False
 
-    nodeLengths :: ByteString -> Dns ByteString
-    nodeLengths b
-        | isJust $ B.foldr checkNodeW (Just 0) b = return b
+    nodeLengths :: FQDNEncoded -> Dns FQDNEncoded
+    nodeLengths fqdn
+        | isJust $ B.foldr checkNodeW (Just 0) $ toBytes fqdn = return fqdn
         | otherwise = throwError "Network.DNS.API.Utils: checkEncoding: URL contains too long labels"
 
     checkNodeW :: Char -> Maybe Int -> Maybe Int

@@ -48,7 +48,7 @@ import Control.Concurrent.STM.TChan
 -- | Server configuration
 data API.Packable p => ServerConf context p = ServerConf
   { query :: Connection context
-          -> ByteString
+          -> API.FQDNEncoded
           -> IO (Maybe (API.Response p)) -- ^ the method to perform a request
   , inFail :: DNSFormat
            -> IO (Either String DNSFormat) -- ^ the method to use to handle query failure
@@ -62,7 +62,7 @@ data API.Packable p => ServerConf context p = ServerConf
 --
 -- you need to replace the @query@ method. The best way to use it is to use this function
 createServerConf :: API.Packable p
-                 => (Connection a -> ByteString -> IO (Maybe (API.Response p)))
+                 => (Connection a -> API.FQDNEncoded -> IO (Maybe (API.Response p)))
                  -> ServerConf a p
 createServerConf function =
    ServerConf
@@ -99,7 +99,7 @@ handleRequest :: API.Packable p => ServerConf a p -> Connection a -> DNSFormat -
 handleRequest conf conn req =
   case listToMaybe . filterTXT . question $ req of
     Just q -> do
-        mres <- query conf conn $ qname q
+        mres <- query conf conn $ API.encodeFQDN $ qname q
         case mres of
            Just txt -> return $ Right $ mconcat . SL.toChunks $ encode $ responseTXT q (splitTxt $ API.encodeResponse txt)
            Nothing  -> inFail conf req >>= return.inFailWrapper

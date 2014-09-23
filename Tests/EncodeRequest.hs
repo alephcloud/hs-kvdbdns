@@ -53,7 +53,7 @@ prop_encode_request (TestRequest req dom) =
       d1 = decodeOrError dom e1
       e2 = encodeOrError d1
       d2 = decodeOrError dom e2
-      encoding = either error (\_ -> True) $ runIdentity $ runExceptT $ checkEncoding e1
+      encoding = either error (\_ -> True) $ runIdentity $ runExceptT $ validateFQDN e1
   in  d1 == d2 && d2 == req && encoding
 
 encodeOrError d = either error id $ runIdentity $ runExceptT $ encode d

@@ -67,7 +67,7 @@ exampleDB =
 -- This actual example just ignore the connection context and information
 queryDummy :: ByteString
            -> Connection Int
-           -> ByteString
+           -> API.FQDNEncoded
            -> IO (Maybe (API.Response ByteString))
 queryDummy dom conn req = do
   let eReq = runIdentity $ runExceptT $ API.decode dom req :: Either String ExampleRequest
