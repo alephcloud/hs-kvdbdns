@@ -35,7 +35,7 @@ main = do
   args <- getArgs
   name <- getProgName
   case args of
-    [d] -> do let d' = runIdentity $ runExceptT $ API.validateFQDN $ API.encodeFQDN $ BS.pack d
+    [d] -> do let d' = API.execDns $ API.validateFQDN $ API.encodeFQDN $ BS.pack d
               let dom = either (\err -> error $ "the given domain address is not a valid FQDN: " ++ err)
                                (id) d'
               sl <- getDefaultConnections (Just "8053") (Seconds 3) Nothing >>= return.catMaybes
@@ -72,7 +72,7 @@ queryDummy :: API.FQDN
            -> API.FQDNEncoded
            -> IO (Maybe (API.Response Return))
 queryDummy dom conn req = do
-  let eReq = runIdentity $ runExceptT $ API.decodeFQDNEncoded $ API.removeFQDNSuffix req dom :: Either String ExampleRequest
+  let eReq = API.execDns $ API.decodeFQDNEncoded $ API.removeFQDNSuffix req dom :: Either String ExampleRequest
   print $ "Connection: " ++ (show $ getSockAddr conn) ++ " opened: " ++ (show $ getCreationDate conn)
   case eReq of
     Left err -> return Nothing

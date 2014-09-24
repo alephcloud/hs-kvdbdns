@@ -9,9 +9,15 @@
 --
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Network.DNS.API.Types
   ( Dns
   , DnsIO
+  , errorDns
+  , errorDnsIO
+  , pureDns
+  , execDns
+  , execDnsIO
     -- * FQDN encoding
     -- ** Types
   , FQDNEncoded
@@ -36,6 +42,8 @@ module Network.DNS.API.Types
 
 import Control.Applicative
 import Control.Monad.Except
+import Control.Monad.Identity
+import Control.Monad.IO.Class
 
 import Data.Byteable
 import Data.ByteString (ByteString)
@@ -45,8 +53,25 @@ import qualified Data.ByteString.Parse  as BP
 
 import Data.Word (Word8)
 
-type Dns   a = Except String a
-type DnsIO a = ExceptT String IO a
+newtype Dns   a = Dns { runDns :: Except String a }
+    deriving (Functor, Applicative, Monad)
+newtype DnsIO a = DnsIO { runDnsIO :: ExceptT String IO a }
+    deriving (Functor, Applicative, Monad, MonadIO)
+
+pureDns :: Dns a -> DnsIO a
+pureDns = (either (DnsIO . throwError) return) . execDns
+
+errorDns :: String -> Dns a
+errorDns = Dns . throwError
+
+execDns :: Dns a -> Either String a
+execDns = runExcept . runDns
+
+errorDnsIO :: String -> DnsIO a
+errorDnsIO = DnsIO . throwError
+
+execDnsIO :: DnsIO a -> IO (Either String a)
+execDnsIO = runExceptT . runDnsIO
 
 ------------------------------------------------------------------------------
 --                                FQDN                                      --
@@ -102,10 +127,10 @@ dnsParse :: BP.Parser a -> ByteString -> Dns a
 dnsParse parser bs = do
     l <- BP.parseFeed (return B.empty) parser bs
     case l of
-        BP.ParseFail err -> throwError $ "Network.DNS.API.Types.dnsParse: parse fail: " ++ err
-        BP.ParseMore {}  -> throwError "Network.DNS.API.Types.dnsParse: parse Partial"
+        BP.ParseFail err -> errorDns $ "Network.DNS.API.Types.dnsParse: parse fail: " ++ err
+        BP.ParseMore {}  -> errorDns "Network.DNS.API.Types.dnsParse: parse Partial"
         BP.ParseOK b v | B.null b  -> return v
-                       | otherwise -> throwError "Network.DNS.API.Types.dnsParse: unparsed data"
+                       | otherwise -> errorDns "Network.DNS.API.Types.dnsParse: unparsed data"
 
 ------------------------------------------------------------------------------
 --                                Encodable                                 --
@@ -184,7 +209,7 @@ encode32FQDNEncoded :: ByteString -> Dns FQDNEncoded
 encode32FQDNEncoded bs = encodeFQDN <$> fqdn
   where
     fqdn :: Dns ByteString
-    fqdn = either (throwError) (\e -> return $ B.intercalate (B.pack [0x2E]) $ splitByNode e) $ BSB32.encode bs
+    fqdn = either (errorDns) (\e -> return $ B.intercalate (B.pack [0x2E]) $ splitByNode e) $ BSB32.encode bs
 
     splitByNode :: ByteString -> [ByteString]
     splitByNode b
@@ -199,7 +224,7 @@ decode32FQDNEncoded :: FQDNEncoded
                     -> Dns ByteString
 decode32FQDNEncoded fqdn =
     case BSB32.decode $ B.concat $ B.split 0x2E bs of
-        Left err  -> throwError err
+        Left err  -> errorDns err
         Right dbs -> return dbs
   where
     bs :: ByteString

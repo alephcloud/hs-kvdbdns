@@ -44,12 +44,9 @@ instance Arbitrary (Response TestResponse) where
       return $ Response txt sig
 
 prop_encode_response :: Response TestResponse -> Bool
-prop_encode_response resp = do
-  case encodeDecode resp of
-    Left err -> error err
-    Right d1 ->
-      case encodeDecode d1 of
-        Left err -> error err
-        Right d2 -> d1 == d2 && d2 == resp
+prop_encode_response resp =
+    let d1 = encodeDecode resp
+        d2 = encodeDecode d1
+    in  d1 == d2 && d2 == resp
   where
-    encodeDecode d = runIdentity $ runExceptT $ decodeResponse $ encodeResponse d
+    encodeDecode d = either (error) id $ execDns $ decodeResponse $ encodeResponse d

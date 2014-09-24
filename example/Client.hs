@@ -38,13 +38,13 @@ main = do
                   , nonce = uniqueNonce
                   }
       let domBs = BS.pack d
-      let d' = runIdentity $ runExceptT $ validateFQDN $ encodeFQDN domBs
       let dom = either (\err -> error $ "the given domain address is not a valid FQDN: " ++ err)
-                       (id) d'
+                       (id) $ execDns $ validateFQDN $ encodeFQDN domBs
       rs <- makeResolvSeedSafe (Just domBs) (Just $ fromIntegral 8053) Nothing Nothing
-      rep <- runExceptT $ sendQueryDefaultTo rs req dom :: IO (Either String (Response Return))
+      rep <- execDnsIO $ sendQueryDefaultTo rs req dom :: IO (Either String (Response Return))
       case rep of
         Left err -> error $ "exmaple.Client: " ++ err
-        Right re -> do print $ "nonce == signature ? " ++ (show $ (signature re) == uniqueNonce)
-                       print re
+        Right re -> if signature re /= uniqueNonce
+                       then error "example: signature not valide"
+                       else print $ response re
     _ -> putStrLn $ "usage: " ++ name ++ " <domain> <echo|db> <param>"
