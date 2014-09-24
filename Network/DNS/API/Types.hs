@@ -22,6 +22,7 @@ module Network.DNS.API.Types
     -- * Request
     -- ** Class
   , Encodable(..)
+  , decodeFQDNEncoded
   , Packable(..)
     -- ** Types
   , Request(..)
@@ -116,12 +117,11 @@ dnsParse parser bs = do
 -- encode the URL into a format that will be a valide format for every DNS
 -- servers our request may go through.
 class Encodable a where
-  encode :: a -> Dns FQDNEncoded
-  decode :: ByteString -> FQDNEncoded -> Dns a
+    encode :: a -> Dns FQDNEncoded
+    decode :: BP.Parser a
 
-instance Encodable ByteString where
-  encode   = encodeByteString
-  decode _ = decodeByteString
+decodeFQDNEncoded :: Encodable a => FQDNEncoded -> Dns a
+decodeFQDNEncoded fqdn = decode32FQDNEncoded fqdn >>= dnsParse decode
 
 ------------------------------------------------------------------------------
 --                              Request                                     --
@@ -144,8 +144,7 @@ instance Encodable ByteString where
 -- And to use it quickly:
 -- > encode $ DNSRequest "alephcloud.com." ("hello words!" :: ByteString) "0123456789"
 data Request p = Request
-  { domain :: ByteString -- ^ the DNS-Server Domain Name
-  , cmd    :: p          -- ^ the command
+  { cmd    :: p          -- ^ the command
   , nonce  :: ByteString -- ^ a nonce to sign the Response
   } deriving (Show, Eq)
 
@@ -163,50 +162,29 @@ class Packable p where
 
 encodeRequest :: Packable p => Request p -> Dns FQDNEncoded
 encodeRequest req =
-    return.encodeFQDN =<< (B.concat <$> sequence [encoded, pure $ B.pack [0x2E], pure $ domain req])
+    encode32FQDNEncoded bs
   where
-    encoded :: Dns ByteString
-    encoded =
+    bs :: ByteString
+    bs =
       let nonceBS = nonce req
           cmdBS   = pack $ cmd req
           nonceSize = fromIntegral $ B.length nonceBS :: Word8
-          cmdSize   = fromIntegral $ B.length cmdBS :: Word8
-      in  toBytes <$> (encodeByteString $ B.concat [ B.pack [nonceSize]
-                                                   , nonceBS
-                                                   , B.pack [cmdSize]
-                                                   , cmdBS
-                                                   ])
+      in  B.concat [ B.pack [nonceSize], nonceBS, cmdBS]
 
 decodeRequest :: Packable p
-              => ByteString
-              -> FQDNEncoded
-              -> Dns (Request p)
-decodeRequest dom fqdn =
-    Request
-      <$> pure dom
-      <*> (command >>= dnsParse unpack)
-      <*> ((\l s -> (B.take l $ B.drop 1 s)) <$> nonceSize <*> decoded)
-  where
-    bs :: ByteString
-    bs = toBytes fqdn
-
-    decoded :: Dns ByteString
-    decoded = decode dom $ FQDNEncoded $ B.take (B.length bs - B.length dom - 1) bs
-
-    nonceSize :: Dns Int
-    nonceSize = (fromIntegral . B.head) <$> decoded
-
-    commandAndSize :: Dns ByteString
-    commandAndSize = (\l s -> B.drop (l + 1) s) <$> nonceSize <*> decoded
-    command :: Dns ByteString
-    command = (B.drop 1) <$> commandAndSize
+              => BP.Parser (Request p)
+decodeRequest = do
+    nonceSize <- fromIntegral <$> BP.anyByte
+    nonceBS <- BP.take nonceSize
+    cmdBS <- unpack
+    return $ Request { nonce = nonceBS, cmd = cmdBS }
 
 -- | Encode into a FQDN compatible fornat
-encodeByteString :: ByteString -> Dns FQDNEncoded
-encodeByteString bs = return.encodeFQDN =<< (B.intercalate (B.pack [0x2E])) <$> splitByNode <$> e
+encode32FQDNEncoded :: ByteString -> Dns FQDNEncoded
+encode32FQDNEncoded bs = encodeFQDN <$> fqdn
   where
-    e :: Dns ByteString
-    e = either (throwError) (return) $ BSB32.encode bs
+    fqdn :: Dns ByteString
+    fqdn = either (throwError) (\e -> return $ B.intercalate (B.pack [0x2E]) $ splitByNode e) $ BSB32.encode bs
 
     splitByNode :: ByteString -> [ByteString]
     splitByNode b
@@ -215,11 +193,14 @@ encodeByteString bs = return.encodeFQDN =<< (B.intercalate (B.pack [0x2E])) <$> 
       where
         (node, xs) = B.splitAt 63 b
 
--- Decode an URL:
--- Split the bytestring into nodes (split at every '.')
--- and then concat and decode the result
-decodeByteString :: FQDNEncoded -> Dns ByteString
-decodeByteString fqdn =
-  case BSB32.decode $ B.concat $ B.split 0x2E $ toBytes fqdn of
-    Left err  -> throwError err
-    Right dbs -> return dbs
+-- | base 32 decode a FQDN
+-- but do not decode the Request
+decode32FQDNEncoded :: FQDNEncoded
+                    -> Dns ByteString
+decode32FQDNEncoded fqdn =
+    case BSB32.decode $ B.concat $ B.split 0x2E bs of
+        Left err  -> throwError err
+        Right dbs -> return dbs
+  where
+    bs :: ByteString
+    bs = toBytes fqdn

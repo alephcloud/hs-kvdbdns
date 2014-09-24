@@ -55,6 +55,7 @@ Test-Suite           tests
                      , mtl
                      , transformers >= 0.4
                      , bsparse >= 0.0.3
+                     , byteable
   default-language:    Haskell2010
 
 Executable           Client

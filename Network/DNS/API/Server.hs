@@ -48,7 +48,7 @@ import Control.Concurrent.STM.TChan
 -- | Server configuration
 data API.Packable p => ServerConf context p = ServerConf
   { query :: Connection context
-          -> API.FQDNEncoded
+          -> API.FQDNEncoded             -- ^ the full requested FQDN (the encoded data + the domain FQDN)
           -> IO (Maybe (API.Response p)) -- ^ the method to perform a request
   , inFail :: DNSFormat
            -> IO (Either String DNSFormat) -- ^ the method to use to handle query failure

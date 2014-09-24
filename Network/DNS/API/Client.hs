@@ -49,9 +49,10 @@ parseQuery q =
 sendQuery :: (Packable p, Encodable a)
           => DNS.Resolver
           -> a            -- ^ the key/request
+          -> FQDN
           -> DnsIO (Response p)
-sendQuery res q = do
-  case runIdentity $ runExceptT (encode q >>= validateFQDN) of
+sendQuery res q dom = do
+  case runIdentity $ runExceptT (encode q >>= \e -> appendFQDN e dom) of
     Left err -> throwError err
     Right e -> do
       r <- doLookup $ toBytes e
@@ -71,10 +72,11 @@ sendQuery res q = do
 sendQueryDefaultTo :: (Packable p, Encodable a)
                    => DNS.ResolvSeed -- ^ the DNSResolverSeed
                    -> a              -- ^ the request
+                   -> FQDN
                    -> DnsIO (Response p)
-sendQueryDefaultTo seed req = do
+sendQueryDefaultTo seed req dom = do
    ret <- liftIO $ DNS.withResolver seed $ \resolver ->
-                     runExceptT $ sendQuery resolver req
+                     runExceptT $ sendQuery resolver req dom
    case ret of
      Left err -> throwError err
      Right a  -> return a
@@ -125,7 +127,8 @@ makeResolvSeedSafe mhn mport mto mr = do
 -- @
 sendQueryDefault :: (Packable p, Encodable a)
                  => a   -- the request
+                 -> FQDN
                  -> DnsIO (Response p)
-sendQueryDefault req = do
+sendQueryDefault req dom = do
     rs <- liftIO $ DNS.makeResolvSeed DNS.defaultResolvConf
-    sendQueryDefaultTo rs req
+    sendQueryDefaultTo rs req dom

@@ -12,7 +12,8 @@
 import Data.Default (def)
 import Data.Char (ord)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString      as S
+import qualified Data.ByteString       as S
+import qualified Data.ByteString.Char8 as BS
 import Data.Hourglass.Types
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -20,28 +21,29 @@ import Data.Maybe
 
 import Network.DNS.API.Server
 import qualified Network.DNS.API.Types as API
+import qualified Network.DNS.API.Utils as API
 import API
 
 import System.Environment
 import Control.Monad
 import Control.Concurrent
 import Control.Monad.Except
-import Data.Functor.Identity
+import Control.Monad.Identity
 
 main :: IO ()
 main = do
   args <- getArgs
   name <- getProgName
   case args of
-    [dom] -> do sl <- getDefaultConnections (Just "8053") (Seconds 3) Nothing >>= return.catMaybes
-                defaultServer (serverConf dom) sl
+    [d] -> do let d' = runIdentity $ runExceptT $ API.validateFQDN $ API.encodeFQDN $ BS.pack d
+              let dom = either (\err -> error $ "the given domain address is not a valid FQDN: " ++ err)
+                               (id) d'
+              sl <- getDefaultConnections (Just "8053") (Seconds 3) Nothing >>= return.catMaybes
+              defaultServer (serverConf dom) sl
     _     -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
   where
-    serverConf :: String -> ServerConf Int Return
-    serverConf dom = createServerConf (queryDummy (byteStringFromString dom))
-
-    byteStringFromString :: [Char] -> ByteString
-    byteStringFromString s = S.pack $ map (fromIntegral.ord) s
+    serverConf :: API.FQDN -> ServerConf Int Return
+    serverConf dom = createServerConf (queryDummy dom)
 
 ------------------------------------------------------------------------------
 --                          API: queries handling                          --
@@ -65,12 +67,12 @@ exampleDB =
 -- * db  : return the DB
 --
 -- This actual example just ignore the connection context and information
-queryDummy :: ByteString
+queryDummy :: API.FQDN
            -> Connection Int
            -> API.FQDNEncoded
            -> IO (Maybe (API.Response Return))
 queryDummy dom conn req = do
-  let eReq = runIdentity $ runExceptT $ API.decode dom req :: Either String ExampleRequest
+  let eReq = runIdentity $ runExceptT $ API.decodeFQDNEncoded $ API.removeFQDNSuffix req dom :: Either String ExampleRequest
   print $ "Connection: " ++ (show $ getSockAddr conn) ++ " opened: " ++ (show $ getCreationDate conn)
   case eReq of
     Left err -> return Nothing
