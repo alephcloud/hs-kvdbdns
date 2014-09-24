@@ -30,6 +30,7 @@ module Network.DNS.API.Types
   , Encodable(..)
   , decodeFQDNEncoded
   , Packable(..)
+  , unpackData
     -- ** Types
   , Request(..)
     -- * Response
@@ -43,7 +44,6 @@ module Network.DNS.API.Types
 import Control.Applicative
 import Control.Monad.Except
 import Control.Monad.Identity
-import Control.Monad.IO.Class
 
 import Data.Byteable
 import Data.ByteString (ByteString)
@@ -184,6 +184,10 @@ instance (Packable p) => Encodable (Request p) where
 class Packable p where
   pack   :: p -> ByteString
   unpack :: BP.Parser p
+
+-- a method a call the unpacker of a Packable
+unpackData :: Packable p => ByteString -> Dns p
+unpackData = dnsParse unpack
 
 encodeRequest :: Packable p => Request p -> Dns FQDNEncoded
 encodeRequest req =
