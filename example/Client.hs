@@ -36,7 +36,7 @@ main = do
                   , nonce = uniqueNonce
                   }
       rs <- makeResolvSeedSafe (Just $ BS.pack d) (Just $ fromIntegral 8053) Nothing Nothing
-      rep <- runExceptT $ sendQueryDefaultTo rs req :: IO (Either String (Response ByteString))
+      rep <- runExceptT $ sendQueryDefaultTo rs req :: IO (Either String (Response Return))
       case rep of
         Left err -> error $ "exmaple.Client: " ++ err
         Right re -> do print $ "nonce == signature ? " ++ (show $ (signature re) == uniqueNonce)

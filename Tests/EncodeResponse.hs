@@ -12,6 +12,7 @@ module EncodeResponse where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Parse as BP
 import Data.Word (Word8)
 
 import Test.Tasty
@@ -25,17 +26,24 @@ import Network.DNS.API.Types
 import Control.Monad.Except
 import Data.Functor.Identity
 
-instance Arbitrary (Response ByteString) where
+data TestResponse = TestResponse ByteString
+    deriving (Show, Eq)
+
+instance Packable TestResponse where
+    pack (TestResponse bs) = bs
+    unpack = TestResponse <$> BP.takeAll
+
+instance Arbitrary (Response TestResponse) where
   arbitrary =
     let genTxt = arbitrary :: Gen ByteString
         genSignature n = vectorOf n (arbitrary :: Gen Word8) >>= return . B.pack
     in  do
       sizeSignature <- choose (4, 12)
       sig <- genSignature sizeSignature
-      txt <- genTxt
+      txt <- TestResponse <$> genTxt
       return $ Response txt sig
 
-prop_encode_response :: Response ByteString -> Bool
+prop_encode_response :: Response TestResponse -> Bool
 prop_encode_response resp = do
   case encodeDecode resp of
     Left err -> error err

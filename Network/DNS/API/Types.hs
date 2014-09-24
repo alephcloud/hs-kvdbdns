@@ -33,15 +33,16 @@ module Network.DNS.API.Types
   , decodeResponse
   ) where
 
+import Control.Applicative
+import Control.Monad.Except
+
 import Data.Byteable
 import Data.ByteString (ByteString)
 import qualified Data.ByteString        as B
-import qualified Data.ByteString.Char8  as BC
 import qualified Data.ByteString.Base32 as BSB32
+import qualified Data.ByteString.Parse  as BP
 
 import Data.Word (Word8)
-import Control.Applicative
-import Control.Monad.Except
 
 type Dns   a = Except String a
 type DnsIO a = ExceptT String IO a
@@ -87,13 +88,23 @@ encodeResponse resp = B.concat [sigLength, sig, pack txt]
     sig = signature resp
 
 decodeResponse :: Packable p => ByteString -> Dns (Response p)
-decodeResponse bs =
-  unpack txt >>= \t -> return $ Response { response  = t, signature = sig }
+decodeResponse = dnsParse parser
   where
-    sigLength :: Int
-    sigLength = fromIntegral $ B.head bs
-    sig = B.take sigLength $ B.drop 1 bs
-    txt = B.drop (1 + sigLength) bs
+    parser :: Packable p => BP.Parser (Response p)
+    parser = do
+        s <- fromIntegral <$> BP.anyByte
+        sig <- BP.take s
+        res <- unpack
+        return $ Response { signature = sig, response = res }
+
+dnsParse :: BP.Parser a -> ByteString -> Dns a
+dnsParse parser bs = do
+    l <- BP.parseFeed (return B.empty) parser bs
+    case l of
+        BP.ParseFail err -> throwError $ "Network.DNS.API.Types.dnsParse: parse fail: " ++ err
+        BP.ParseMore {}  -> throwError "Network.DNS.API.Types.dnsParse: parse Partial"
+        BP.ParseOK b v | B.null b  -> return v
+                       | otherwise -> throwError "Network.DNS.API.Types.dnsParse: unparsed data"
 
 ------------------------------------------------------------------------------
 --                                Encodable                                 --
@@ -148,15 +159,7 @@ instance (Packable p) => Encodable (Request p) where
 -- proposed Request
 class Packable p where
   pack   :: p -> ByteString
-  unpack :: ByteString -> Dns p
-
-instance Packable ByteString where
-  pack   = id
-  unpack = pure.id
-
-instance Packable String where
-  pack   = BC.pack
-  unpack = pure . BC.unpack
+  unpack :: BP.Parser p
 
 encodeRequest :: Packable p => Request p -> Dns FQDNEncoded
 encodeRequest req =
@@ -181,7 +184,7 @@ decodeRequest :: Packable p
 decodeRequest dom fqdn =
     Request
       <$> pure dom
-      <*> (unpack =<< command)
+      <*> (command >>= dnsParse unpack)
       <*> ((\l s -> (B.take l $ B.drop 1 s)) <$> nonceSize <*> decoded)
   where
     bs :: ByteString

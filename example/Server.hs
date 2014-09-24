@@ -37,7 +37,7 @@ main = do
                 defaultServer (serverConf dom) sl
     _     -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
   where
-    serverConf :: String -> ServerConf Int ByteString
+    serverConf :: String -> ServerConf Int Return
     serverConf dom = createServerConf (queryDummy (byteStringFromString dom))
 
     byteStringFromString :: [Char] -> ByteString
@@ -68,7 +68,7 @@ exampleDB =
 queryDummy :: ByteString
            -> Connection Int
            -> API.FQDNEncoded
-           -> IO (Maybe (API.Response ByteString))
+           -> IO (Maybe (API.Response Return))
 queryDummy dom conn req = do
   let eReq = runIdentity $ runExceptT $ API.decode dom req :: Either String ExampleRequest
   print $ "Connection: " ++ (show $ getSockAddr conn) ++ " opened: " ++ (show $ getCreationDate conn)
@@ -76,12 +76,12 @@ queryDummy dom conn req = do
     Left err -> return Nothing
     Right r  -> treatRequest r
   where
-    sign :: ByteString -> ByteString -> API.Response ByteString
+    sign :: ByteString -> Return -> API.Response Return
     sign n t = API.Response { signature = n, response = t }
 
-    treatRequest :: API.ExampleRequest -> IO (Maybe (API.Response ByteString))
+    treatRequest :: API.ExampleRequest -> IO (Maybe (API.Response Return))
     treatRequest r =
-      return $ case command $ API.cmd r of
-                  "echo" -> Just $ sign (API.nonce r) (param $ API.cmd r)
-                  "db"   -> maybe Nothing (\p -> Just $ sign (API.nonce r) p) $ Map.lookup (param $ API.cmd r) exampleOfDB
-                  _      -> Nothing
+        return $ case command $ API.cmd r of
+                    "echo" -> Just $ sign (API.nonce r) (Return $ param $ API.cmd r)
+                    "db"   -> maybe Nothing (\p -> Just $ sign (API.nonce r) $ Return p) $ Map.lookup (param $ API.cmd r) exampleOfDB
+                    _      -> Nothing

@@ -13,6 +13,7 @@ module EncodeRequest where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Parse as BP
 import Data.Word (Word8)
 
 import Test.Tasty
@@ -29,7 +30,14 @@ import Control.Monad.Except
 import System.IO.Unsafe
 import Data.Functor.Identity
 
-data TestRequest = TestRequest (Request ByteString) ByteString
+data TestCommand = TestCommand ByteString
+    deriving (Show, Eq)
+
+instance Packable TestCommand where
+    pack (TestCommand bs) = bs
+    unpack = TestCommand <$> BP.takeAll
+
+data TestRequest = TestRequest (Request TestCommand) ByteString
   deriving (Show, Eq)
 
 instance Arbitrary TestRequest where
@@ -43,7 +51,7 @@ instance Arbitrary TestRequest where
       sizeNonce <- choose (4, 12)
       dom <- genDom sizeDom
       req <- Request dom
-              <$> genCommand sizeCmd
+              <$> (TestCommand <$> genCommand sizeCmd)
               <*> genNonce sizeNonce
       return $ TestRequest req dom
 
