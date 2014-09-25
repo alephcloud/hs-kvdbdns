@@ -10,7 +10,6 @@
 import Test.Tasty
 import Test.Tasty.QuickCheck
 
-import EncodeString
 import EncodeByteString
 import EncodeRequest
 import EncodeResponse
@@ -25,8 +24,7 @@ tests = testGroup "API over DNS"
     ]
   where
     tests_encode = testGroup "Encoding"
-      [ testProperty "Encode String"        prop_encode_string
-      , testProperty "Encode ByteString"    prop_encode_bytestring
+      [ testProperty "Encode ByteString"    prop_encode_bytestring
       , testProperty "Guess encoded length" prop_guess_encoded_length
       ]
     tests_dns_request = testGroup "DNS Request"

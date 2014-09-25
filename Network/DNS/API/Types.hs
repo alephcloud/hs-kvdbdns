@@ -18,27 +18,21 @@ module Network.DNS.API.Types
   , pureDns
   , execDns
   , execDnsIO
-    -- * FQDN encoding
-    -- ** Types
+    -- * Request
+    -- ** FQDN encoding
   , FQDNEncoded
   , FQDN
-    -- ** Accessors
   , encodeFQDN
   , unsafeToFQDN
-    -- * Request
     -- ** Class
   , Encodable(..)
   , decodeFQDNEncoded
-  , Packable(..)
-  , unpackData
-    -- ** Types
-  , Request(..)
+  , encodeFQDNEncoded
     -- * Response
-    -- ** Types
-  , Response(..)
-    -- ** Functions
-  , encodeResponse
-  , decodeResponse
+    -- ** Class
+  , Packable(..)
+  , packData
+  , unpackData
   ) where
 
 import Control.Applicative
@@ -50,26 +44,36 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString        as B
 import qualified Data.ByteString.Base32 as BSB32
 import qualified Data.ByteString.Parse  as BP
+import qualified Data.ByteString.Pack   as BP
 
-import Data.Word (Word8)
+------------------------------------------------------------------------------
+--                               Error monad                                --
+------------------------------------------------------------------------------
 
+-- | Pure DNS error Monad
 newtype Dns   a = Dns { runDns :: Except String a }
     deriving (Functor, Applicative, Monad)
+-- | DNS error IO Monad
 newtype DnsIO a = DnsIO { runDnsIO :: ExceptT String IO a }
     deriving (Functor, Applicative, Monad, MonadIO)
 
+-- | lift a Dns into a DnsIO
 pureDns :: Dns a -> DnsIO a
 pureDns = (either (DnsIO . throwError) return) . execDns
 
+-- | throw a Dns error
 errorDns :: String -> Dns a
 errorDns = Dns . throwError
 
+-- | run the Dns
 execDns :: Dns a -> Either String a
 execDns = runExcept . runDns
 
+-- | throw a DnsIO error
 errorDnsIO :: String -> DnsIO a
 errorDnsIO = DnsIO . throwError
 
+-- | run the DnsIO
 execDnsIO :: DnsIO a -> IO (Either String a)
 execDnsIO = runExceptT . runDnsIO
 
@@ -77,52 +81,34 @@ execDnsIO = runExceptT . runDnsIO
 --                                FQDN                                      --
 ------------------------------------------------------------------------------
 
+-- | represent a encoded but not validated FQDN
+-- (means that this FQDN is base32 encoded and but may not be a valide FQDN
 newtype FQDNEncoded = FQDNEncoded ByteString
     deriving (Show, Eq)
 
 instance Byteable FQDNEncoded where
     toBytes (FQDNEncoded bs) = bs
 
+-- | build a encoded FQDN
 encodeFQDN :: ByteString -> FQDNEncoded
 encodeFQDN bs = FQDNEncoded bs
 
+-- | represent a valide FQDN
 newtype FQDN = FQDN ByteString
     deriving (Show, Eq)
 
 instance Byteable FQDN where
     toBytes (FQDN bs) = bs
 
+-- | for FQDN
 unsafeToFQDN :: FQDNEncoded -> FQDN
 unsafeToFQDN = FQDN . toBytes
 
 ------------------------------------------------------------------------------
---                                   Response                               --
+--                                   Helpers                                --
 ------------------------------------------------------------------------------
 
--- | The response data that will be return to the requester
-data Response p = Response
-  { response  :: p
-  , signature :: ByteString
-  } deriving (Show, Eq)
-
-encodeResponse :: Packable p => Response p -> ByteString
-encodeResponse resp = B.concat [sigLength, sig, pack txt]
-  where
-    sigLength :: ByteString
-    sigLength = B.pack [fromIntegral $ B.length sig]
-    txt = response  resp
-    sig = signature resp
-
-decodeResponse :: Packable p => ByteString -> Dns (Response p)
-decodeResponse = dnsParse parser
-  where
-    parser :: Packable p => BP.Parser (Response p)
-    parser = do
-        s <- fromIntegral <$> BP.anyByte
-        sig <- BP.take s
-        res <- unpack
-        return $ Response { signature = sig, response = res }
-
+-- help to execute a parsing of a bytestring
 dnsParse :: BP.Parser a -> ByteString -> Dns a
 dnsParse parser bs = do
     l <- BP.parseFeed (return B.empty) parser bs
@@ -131,6 +117,14 @@ dnsParse parser bs = do
         BP.ParseMore {}  -> errorDns "Network.DNS.API.Types.dnsParse: parse Partial"
         BP.ParseOK b v | B.null b  -> return v
                        | otherwise -> errorDns "Network.DNS.API.Types.dnsParse: unparsed data"
+
+-- help to execute the packing of a bytestring
+dnsPack :: (BP.Packer a, Int) -> Dns ByteString
+dnsPack (packer, size) =
+    let l = BP.pack packer size
+    in  case l of
+            Left err -> errorDns $ "Network.DNS.API.dnsPack: pack fail: " ++ err ++ " " ++ (show size)
+            Right bs -> return bs
 
 ------------------------------------------------------------------------------
 --                                Encodable                                 --
@@ -141,75 +135,25 @@ dnsParse parser bs = do
 -- As we use the Domain Name field to send request to the DNS Server we need to
 -- encode the URL into a format that will be a valide format for every DNS
 -- servers our request may go through.
-class Encodable a where
-    encode :: a -> Dns FQDNEncoded
-    decode :: BP.Parser a
+class Encodable encodable where
+    encode :: encodable -> (BP.Packer (), Int) -- Dns FQDNEncoded
+    decode :: BP.Parser encodable
 
-decodeFQDNEncoded :: Encodable a => FQDNEncoded -> Dns a
+-- | decode a FQDNEncoded
+decodeFQDNEncoded :: Encodable encodable
+                  => FQDNEncoded
+                  -> Dns encodable
 decodeFQDNEncoded fqdn = decode32FQDNEncoded fqdn >>= dnsParse decode
 
-------------------------------------------------------------------------------
---                              Request                                     --
-------------------------------------------------------------------------------
-
--- | This is the main structure that describes a DNS request
--- Use it to send a DNS query to the DNS-Server
---
--- generate the API byte array:
--- * [1]: nonce length (l >= 0)
--- * [l]: nonce
--- * [1]: command length (s > 0)
--- * [s]:
---     * [1]: the command type
---     * [s-1]: the command params (depends of the command type)
---
--- encode the API byte array into base32 String and append the domain name:
--- > <base32(API byte array)>.<dns domain name>
---
--- And to use it quickly:
--- > encode $ DNSRequest "alephcloud.com." ("hello words!" :: ByteString) "0123456789"
-data Request p = Request
-  { cmd    :: p          -- ^ the command
-  , nonce  :: ByteString -- ^ a nonce to sign the Response
-  } deriving (Show, Eq)
-
-instance (Packable p) => Encodable (Request p) where
-  encode = encodeRequest
-  decode = decodeRequest
-
--- | This represent a packable
---
--- It is use to pack/unpack (into bytestring) a command in the case of the
--- proposed Request
-class Packable p where
-  pack   :: p -> ByteString
-  unpack :: BP.Parser p
-
--- a method a call the unpacker of a Packable
-unpackData :: Packable p => ByteString -> Dns p
-unpackData = dnsParse unpack
-
-encodeRequest :: Packable p => Request p -> Dns FQDNEncoded
-encodeRequest req =
-    encode32FQDNEncoded bs
-  where
-    bs :: ByteString
-    bs =
-      let nonceBS = nonce req
-          cmdBS   = pack $ cmd req
-          nonceSize = fromIntegral $ B.length nonceBS :: Word8
-      in  B.concat [ B.pack [nonceSize], nonceBS, cmdBS]
-
-decodeRequest :: Packable p
-              => BP.Parser (Request p)
-decodeRequest = do
-    nonceSize <- fromIntegral <$> BP.anyByte
-    nonceBS <- BP.take nonceSize
-    cmdBS <- unpack
-    return $ Request { nonce = nonceBS, cmd = cmdBS }
+-- | encode
+encodeFQDNEncoded :: Encodable encodable
+                  => encodable
+                  -> Dns FQDNEncoded
+encodeFQDNEncoded d = dnsPack (encode d) >>= encode32FQDNEncoded
 
 -- | Encode into a FQDN compatible fornat
-encode32FQDNEncoded :: ByteString -> Dns FQDNEncoded
+encode32FQDNEncoded :: ByteString
+                    -> Dns FQDNEncoded
 encode32FQDNEncoded bs = encodeFQDN <$> fqdn
   where
     fqdn :: Dns ByteString
@@ -233,3 +177,24 @@ decode32FQDNEncoded fqdn =
   where
     bs :: ByteString
     bs = toBytes fqdn
+------------------------------------------------------------------------------
+--                              Packable                                    --
+------------------------------------------------------------------------------
+
+-- | This represent a packable
+--
+-- It is use to pack/unpack (into bytestring) a command in the case of the
+-- proposed Request
+class Packable packable where
+    pack   :: packable -> (BP.Packer (), Int)
+    unpack :: BP.Parser packable
+
+-- | unpack the given bytestring
+unpackData :: Packable packable
+           => ByteString
+           -> Dns packable
+unpackData = dnsParse unpack
+
+-- | pack the given data
+packData :: Packable packable => packable -> Dns ByteString
+packData = dnsPack . pack

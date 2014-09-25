@@ -33,18 +33,13 @@ main = do
   name <- getProgName
   case args of
     [d, c, p] -> do
-      let req = Request
-                  { cmd = Command (BS.pack c) (BS.pack p)
-                  , nonce = uniqueNonce
-                  }
+      let req = Command (BS.pack c) (BS.pack p)
       let domBs = BS.pack d
       let dom = either (\err -> error $ "the given domain address is not a valid FQDN: " ++ err)
                        (id) $ execDns $ validateFQDN $ encodeFQDN domBs
       rs <- makeResolvSeedSafe (Just domBs) (Just $ fromIntegral 8053) Nothing Nothing
-      rep <- execDnsIO $ sendQueryDefaultTo rs req dom :: IO (Either String (Response Return))
+      rep <- execDnsIO $ sendQueryTo rs req dom :: IO (Either String Return)
       case rep of
         Left err -> error $ "exmaple.Client: " ++ err
-        Right re -> if signature re /= uniqueNonce
-                       then error "example: signature not valide"
-                       else print $ response re
+        Right re -> print re
     _ -> putStrLn $ "usage: " ++ name ++ " <domain> <echo|db> <param>"

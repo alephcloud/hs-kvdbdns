@@ -24,18 +24,19 @@ import System.Timeout (timeout)
 import Data.Hourglass
 import System.Hourglass
 
+-- | Represent a client connection (UDP or TCP)
 data Connection a = Connection
   { listen      :: Int -> IO ()
   , accept      :: IO (Connection a)
   , read        :: Int -> IO (Maybe ByteString)
   , write       :: ByteString -> IO ()
   , close       :: IO ()
-  -- Aimed to be use at any time:
-  , getKeepOpen :: IO Bool       -- ^ does the session need to be kept opened
-  , setKeepOpen :: Bool -> IO () -- ^ set the current session to keep is open (or not)
-  , getContext  :: MVar a        -- ^ a connection context
-  , getSockAddr :: SockAddr      -- ^ the connection socket address
-  , getCreationDate :: Elapsed   -- ^ the UNIX timestamp creation date
+    -- Aimed to be use at any time:
+  , getKeepOpen :: IO Bool          -- ^ does the session need to be kept opened
+  , setKeepOpen :: Bool -> IO ()    -- ^ set the current session to keep is open (or not)
+  , getContext  :: MVar a           -- ^ a connection context
+  , getSockAddr :: SockAddr         -- ^ the connection socket address
+  , getCreationDate :: Elapsed      -- ^ the UNIX timestamp creation date
   , getLastUsedDate :: IO Elapsed   -- ^ the UNIX timestamp last use date
   }
 

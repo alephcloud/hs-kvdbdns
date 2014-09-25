@@ -13,6 +13,7 @@ module EncodeResponse where
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Parse as BP
+import qualified Data.ByteString.Pack  as BP
 import Data.Word (Word8)
 
 import Test.Tasty
@@ -26,27 +27,26 @@ import Network.DNS.API.Types
 import Control.Monad.Except
 import Data.Functor.Identity
 
-data TestResponse = TestResponse ByteString
+data TestResponse = TestResponse ByteString ByteString
     deriving (Show, Eq)
 
+takeSizedString :: BP.Parser ByteString
+takeSizedString =
+    (fromIntegral <$> BP.anyByte) >>= BP.take
+
 instance Packable TestResponse where
-    pack (TestResponse bs) = bs
-    unpack = TestResponse <$> BP.takeAll
+    pack (TestResponse b1 b2) = ( BP.putStorable (fromIntegral $ B.length b1 :: Word8) >> BP.putByteString b1 >> BP.putByteString b2
+                                , 1 + B.length b1 + B.length b2)
+    unpack = TestResponse <$> takeSizedString
+                          <*> BP.takeAll
 
-instance Arbitrary (Response TestResponse) where
-  arbitrary =
-    let genTxt = arbitrary :: Gen ByteString
-        genSignature n = vectorOf n (arbitrary :: Gen Word8) >>= return . B.pack
-    in  do
-      sizeSignature <- choose (4, 12)
-      sig <- genSignature sizeSignature
-      txt <- TestResponse <$> genTxt
-      return $ Response txt sig
+instance Arbitrary TestResponse where
+  arbitrary = TestResponse <$> arbitrary <*> arbitrary
 
-prop_encode_response :: Response TestResponse -> Bool
+prop_encode_response :: TestResponse -> Bool
 prop_encode_response resp =
     let d1 = encodeDecode resp
         d2 = encodeDecode d1
     in  d1 == d2 && d2 == resp
   where
-    encodeDecode d = either (error) id $ execDns $ decodeResponse $ encodeResponse d
+    encodeDecode d = either (error) id $ execDns $ (packData d >>= unpackData) 

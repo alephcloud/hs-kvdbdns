@@ -31,6 +31,7 @@ appendFQDN encoded dom =
     fqdn :: FQDNEncoded
     fqdn = encodeFQDN $ B.concat [ toBytes encoded, ".", toBytes dom ]
 
+-- | remove the given FQDN suffix from the FQDNEncoded
 removeFQDNSuffix :: FQDNEncoded
                  -> FQDN
                  -> FQDNEncoded

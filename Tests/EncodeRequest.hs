@@ -15,6 +15,7 @@ import Data.Byteable
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Parse as BP
+import qualified Data.ByteString.Pack  as BP
 import Data.Word (Word8)
 
 import Test.Tasty
@@ -31,29 +32,26 @@ import Control.Monad.Except
 import System.IO.Unsafe
 import Data.Functor.Identity
 
-data TestCommand = TestCommand ByteString
+data TestCommand = TestCommand Word8 ByteString
     deriving (Show, Eq)
 
-instance Packable TestCommand where
-    pack (TestCommand bs) = bs
-    unpack = TestCommand <$> BP.takeAll
+instance Encodable TestCommand where
+    encode (TestCommand w bs) = (BP.putStorable w >> BP.putByteString bs, B.length bs + 1)
+    decode = TestCommand <$> BP.anyByte <*> BP.takeAll
 
-data TestRequest = TestRequest (Request TestCommand) FQDN
+data TestRequest = TestRequest TestCommand FQDN
   deriving (Show, Eq)
 
 instance Arbitrary TestRequest where
   arbitrary =
     let genDom     n = vectorOf n (choose (97, 122))       >>= return . B.pack
         genCommand n = vectorOf n (arbitrary :: Gen Word8) >>= return . B.pack
-        genNonce   n = vectorOf n (arbitrary :: Gen Word8) >>= return . B.pack
     in  do
       sizeDom   <- choose (2, 6)
       sizeCmd   <- choose (1, 110)
-      sizeNonce <- choose (4, 12)
       dom <- unsafeToFQDN . encodeFQDN <$> genDom sizeDom
-      req <- Request
-              <$> (TestCommand <$> genCommand sizeCmd)
-              <*> genNonce sizeNonce
+      req <- TestCommand <$> choose (0, 255)
+                         <*> genCommand sizeCmd
       return $ TestRequest req dom
 
 assertEq :: (Eq a, Show a) => a -> a -> Bool
@@ -70,5 +68,5 @@ prop_encode_request (TestRequest req dom) =
     in  assertEq d1 d2
      && assertEq d2 req
   where
-    encodeOrError d = either error id $ execDns $ (encode d >>= \t -> appendFQDN t dom)
+    encodeOrError d = either error id $ execDns $ (encodeFQDNEncoded d >>= \t -> appendFQDN t dom)
     decodeOrError d = either error id $ execDns $ decodeFQDNEncoded $ removeFQDNSuffix (encodeFQDN $ toBytes d) dom

@@ -20,11 +20,12 @@ import qualified Data.Map as Map
 import Data.Maybe
 
 import Network.DNS.API.Server
-import qualified Network.DNS.API.Types as API
-import qualified Network.DNS.API.Utils as API
+import Network.DNS.API.Types as API
+import Network.DNS.API.Utils as API
 import API
 
 import System.Environment
+import Control.Applicative
 import Control.Monad
 import Control.Concurrent
 import Control.Monad.Except
@@ -42,7 +43,7 @@ main = do
               defaultServer (serverConf dom) sl
     _     -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
   where
-    serverConf :: API.FQDN -> ServerConf Int Return
+    serverConf :: FQDN -> ServerConf Int
     serverConf dom = createServerConf (queryDummy dom)
 
 ------------------------------------------------------------------------------
@@ -70,20 +71,17 @@ exampleDB =
 queryDummy :: API.FQDN
            -> Connection Int
            -> API.FQDNEncoded
-           -> IO (Maybe (API.Response Return))
+           -> DnsIO ByteString
 queryDummy dom conn req = do
-  let eReq = API.execDns $ API.decodeFQDNEncoded $ API.removeFQDNSuffix req dom :: Either String ExampleRequest
-  print $ "Connection: " ++ (show $ getSockAddr conn) ++ " opened: " ++ (show $ getCreationDate conn)
-  case eReq of
-    Left err -> return Nothing
-    Right r  -> treatRequest r
+  let eReq = execDns $ decodeFQDNEncoded $ removeFQDNSuffix req dom :: Either String Command
+  liftIO $ print $ "Connection: " ++ (show $ getSockAddr conn) ++ " opened: " ++ (show $ getCreationDate conn)
+  pureDns $ case eReq of
+    Left err -> errorDns err
+    Right r  -> treatRequest r >>= packData
   where
-    sign :: ByteString -> Return -> API.Response Return
-    sign n t = API.Response { signature = n, response = t }
-
-    treatRequest :: API.ExampleRequest -> IO (Maybe (API.Response Return))
+    treatRequest :: Command -> Dns Return
     treatRequest r =
-        return $ case command $ API.cmd r of
-                    "echo" -> Just $ sign (API.nonce r) (Return $ param $ API.cmd r)
-                    "db"   -> maybe Nothing (\p -> Just $ sign (API.nonce r) $ Return p) $ Map.lookup (param $ API.cmd r) exampleOfDB
-                    _      -> Nothing
+        case command r of
+            "echo" -> return $ Return $ param  r
+            "db"   -> maybe (errorDns "key not found") (return . Return) $ Map.lookup (param r) exampleOfDB
+            _      -> errorDns "Command not supported"

@@ -26,7 +26,6 @@ library
                      , Network.DNS.API.Client
                      , Network.DNS.API.Types
                      , Network.DNS.API.Utils
-                     , Data.String.Base32
                      , Data.ByteString.Base32
   build-depends:       base >=4.7 && <4.8
                      , network
@@ -40,6 +39,7 @@ library
                      , hourglass
                      , byteable
                      , bsparse >= 0.0.3
+                     , bspack >= 0.0.1
   default-language:    Haskell2010
   ghc-options:       -Wall -fwarn-tabs -O2
 
@@ -55,6 +55,7 @@ Test-Suite           tests
                      , mtl
                      , transformers >= 0.4
                      , bsparse >= 0.0.3
+                     , bspack >= 0.0.1
                      , byteable
   default-language:    Haskell2010
 
@@ -69,6 +70,7 @@ Executable           Client
                        , mtl
                        , hourglass
                        , bsparse >= 0.0.3
+                       , bspack >= 0.0.1
     Buildable: True
   else
     Buildable: False
@@ -85,6 +87,7 @@ Executable           Server
                        , mtl
                        , transformers >= 0.4
                        , bsparse >= 0.0.3
+                       , bspack >= 0.0.1
                        , hs-dns-api
                        , hourglass
     Buildable: True

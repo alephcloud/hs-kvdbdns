@@ -8,18 +8,18 @@
 -- Portability : unknown
 --
 module Network.DNS.API.Client
-    ( sendQuery
+    ( -- * Send queries
+      -- ** main methods
+      sendQuery
+    , sendQueryTo
+      -- ** raw methods
     , sendQueryRaw
-    , sendQueryDefault
-    , sendQueryRawDefault
-    , sendQueryDefaultTo
-    , sendQueryRawDefaultTo
+    , sendQueryRawTo
+      -- * DNS resolver
     , makeResolvSeedSafe
-      -- * Other needed types
-    , PortNumber
-    , DNS.ResolvSeed
     ) where
 
+import Control.Applicative
 import Control.Exception
 import Control.Monad.Except
 
@@ -33,26 +33,30 @@ import Network.DNS.API.Types
 import Network.DNS.API.Utils
 import Network.Socket (PortNumber)
 
+------------------------------------------------------------------------------
+-- Internal methods
+------------------------------------------------------------------------------
+
+-- catch all exception
 tryAny :: IO a -> (SomeException -> IO a) -> IO a
 tryAny = Control.Exception.catch
 
 -- | Parse the response
-parseQuery :: Packable response
-           => [DNS.RDATA]
-           -> Dns (Response response)
+parseQuery :: [DNS.RDATA]
+           -> Dns ByteString
 parseQuery q =
-  decodeResponse . B.concat =<< mapM toByteString q
+    -- decodeResponse .
+    B.concat <$> mapM toByteString q
   where
     toByteString :: DNS.RDATA -> Dns ByteString
     toByteString (DNS.RD_TXT bs) = return bs
     toByteString d               = errorDns $ "unexpected type: " ++ (show d)
 
 -- | Send a Raw query
-sendQueryRaw :: Packable response
-             => DNS.Resolver
-             -> FQDN
-             -> DnsIO (Response response)
-sendQueryRaw resolver fqdn = do
+sendQueryRaw' :: DNS.Resolver
+              -> FQDN
+              -> DnsIO ByteString
+sendQueryRaw' resolver fqdn = do
     r <- doLookup $ toBytes fqdn
     pureDns $ parseQuery r
   where
@@ -64,43 +68,63 @@ sendQueryRaw resolver fqdn = do
         Left err -> pureDns $ errorDns $ "DNS api: sendQuery: " ++ (show err)
         Right l  -> return l
 
--- | Send a query
-sendQuery :: (Packable response, Encodable request)
-          => DNS.Resolver
-          -> request
-          -> FQDN
-          -> DnsIO (Response response)
-sendQuery res q dom =
-  case execDns (encode q >>= \e -> appendFQDN e dom) of
-    Left err -> pureDns $ errorDns err
-    Right e -> sendQueryRaw res e
-
+------------------------------------------------------------------------------
+-- DNS Query
 ------------------------------------------------------------------------------
 
+-- Raw queries ---------------------------------------------------------------
+
 -- | Send a raw query with the given resolvSeed
-sendQueryRawDefaultTo :: (Packable response)
-                      => DNS.ResolvSeed -- ^ the DNSResolverSeed
-                      -> FQDN
-                      -> DnsIO (Response response)
-sendQueryRawDefaultTo seed fqdn = do
+sendQueryRawTo :: DNS.ResolvSeed -- ^ the DNSResolverSeed
+               -> FQDN
+               -> DnsIO ByteString
+sendQueryRawTo seed fqdn = do
    ret <- liftIO $ DNS.withResolver seed $ \resolver ->
-                      execDnsIO $ sendQueryRaw resolver fqdn
+                      execDnsIO $ sendQueryRaw' resolver fqdn
    case ret of
      Left err -> errorDnsIO err
      Right a  -> return a
 
+-- | send a Raw query using the default resolver
+sendQueryRaw :: FQDN
+             -> DnsIO ByteString
+sendQueryRaw fqdn = do
+    rs <- liftIO $ DNS.makeResolvSeed DNS.defaultResolvConf
+    sendQueryRawTo rs fqdn
+
+-- Generic queries -----------------------------------------------------------
+
 -- | Send a TXT query with the given resolvSeed
-sendQueryDefaultTo :: (Packable response, Encodable request)
-                   => DNS.ResolvSeed -- ^ the DNSResolverSeed
-                   -> request
-                   -> FQDN
-                   -> DnsIO (Response response)
-sendQueryDefaultTo seed req dom = do
-   ret <- liftIO $ DNS.withResolver seed $ \resolver ->
-                     execDnsIO $ sendQuery resolver req dom
-   case ret of
-     Left err -> errorDnsIO err
-     Right a  -> return a
+sendQueryTo :: (Packable response, Encodable request)
+            => DNS.ResolvSeed -- ^ the DNSResolverSeed
+            -> request
+            -> FQDN
+            -> DnsIO response
+sendQueryTo seed req dom = do
+    fqdn <- pureDns $ encodeFQDNEncoded req >>= \e -> appendFQDN e dom
+    ret <- sendQueryRawTo seed fqdn
+    pureDns $ unpackData ret
+
+-- | Send a TXT query with the default DNS Resolver
+--
+-- Equivalent to:
+-- @
+--  sendQuery req dom = do
+--    rs <- makeResolvSeedSafe Nothing Nothing Nothing Nothing
+--    DNS.withResolver rs $
+--           \resolver -> sendQueryTo resolver req dom
+-- @
+sendQuery :: (Packable response, Encodable request)
+          => request
+          -> FQDN
+          -> DnsIO response
+sendQuery req dom = do
+    rs <- liftIO $ makeResolvSeedSafe Nothing Nothing Nothing Nothing
+    sendQueryTo rs req dom
+
+------------------------------------------------------------------------------
+-- ResolvSeed helper
+------------------------------------------------------------------------------
 
 -- | Create the ResolvSeed using the given parameters
 --
@@ -137,26 +161,3 @@ makeResolvSeedSafe mhn mport mto mr = do
                      r2 = maybe r1 (\(Seconds to) -> r1 { DNS.resolvTimeout = (fromIntegral to) * 3000 * 3000 }) mto
                  in maybe r2 (\r  -> r2 { DNS.resolvRetry = r }) mr
 
--- | send a Raw query using the default resolver
-sendQueryRawDefault :: Packable response
-                    => FQDN
-                    -> DnsIO (Response response)
-sendQueryRawDefault fqdn = do
-    rs <- liftIO $ DNS.makeResolvSeed DNS.defaultResolvConf
-    sendQueryRawDefaultTo rs fqdn
--- | Send a TXT query with the default DNS Resolver
---
--- Equivalent to:
--- @
---  sendQueryDefault dom = do
---    rs <- DNS.makeResolvSeed DNS.defaultResolvConf
---    DNS.withResolver rs $
---           \resolver -> sendQuery resolver dom
--- @
-sendQueryDefault :: (Packable response, Encodable request)
-                 => request
-                 -> FQDN
-                 -> DnsIO (Response response)
-sendQueryDefault req dom = do
-    rs <- liftIO $ DNS.makeResolvSeed DNS.defaultResolvConf
-    sendQueryDefaultTo rs req dom

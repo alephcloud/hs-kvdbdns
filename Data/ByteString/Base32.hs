@@ -25,6 +25,21 @@ import Control.Applicative
 import GHC.Prim
 import GHC.Types
 
+-- | Guess what could be the encoded length
+--
+-- > bs :: ByteString
+-- > (length.encoded bs) - (guessEncoded.length bs) < 8
+guessEncodedLength :: Int -- ^ the data length (in byte)
+                   -> Int -- ^ the maximum length of the encoded data (in byte)
+guessEncodedLength 0 = 0
+guessEncodedLength l
+  | modulo == 0 = 8 * l `div` 5
+  | otherwise   = 8 * (l + 5 - modulo) `div` 5
+  where
+    modulo :: Int
+    modulo = l `mod` 5
+
+-- a buffer for the encode/decode method
 data Base32Reader = Base32Reader
   { bits   :: Word8
   , nbRead :: Int
@@ -35,7 +50,10 @@ data Base32Reader = Base32Reader
 --                           Encode a ByteString                            --
 ------------------------------------------------------------------------------
 
-encode :: ByteString
+-- | ENcode a bytestring in base 32
+--
+-- alphabet is [0-9a-v]
+encode :: ByteString --  ^ the bytestring to encode
        -> Either String ByteString
 encode bs = B.pack.reverse.result <$> (eFlushBuffer =<< B.foldl encoder state bs)
   where
@@ -85,7 +103,8 @@ eUpdateBuffer w from to st =
 --                           Decode a ByteString                            --
 ------------------------------------------------------------------------------
 
-decode :: ByteString
+-- | decode a base 32 bytestring
+decode :: ByteString -- ^ the base 32 encoded bytestring
        -> Either String ByteString
 decode bs = B.pack.reverse.result <$> B.foldl decoder state bs
   where
@@ -194,17 +213,3 @@ reverseAlphabet = Table
   \\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\
   \\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\
   \\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff"#
-
--- | Guess what could be the encoded length
---
--- > bs :: ByteString
--- > (length.encoded bs) - (guessEncoded.length bs) < 8
-guessEncodedLength :: Int -- ^ the data length (in byte)
-                   -> Int -- ^ the maximum length of the encoded data (in byte)
-guessEncodedLength 0 = 0
-guessEncodedLength l
-  | modulo == 0 = 8 * l `div` 5
-  | otherwise   = 8 * (l + 5 - modulo) `div` 5
-  where
-    modulo :: Int
-    modulo = l `mod` 5
