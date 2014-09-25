@@ -7,35 +7,59 @@
 -- Stability   : experimental
 -- Portability : unknown
 --
+{-# LANGUAGE OverloadedStrings #-}
 module Network.DNS.API.Utils
    ( validateFQDN
+   , appendFQDN
+   , removeFQDNSuffix
    ) where
 
-import Control.Monad.Except
 import Data.Byteable
+import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.Maybe (isJust)
 
 import Network.DNS.API.Types
 
--- | Check that the given bytestring (the Domain) respect some rules:
+-- | Append an FQDNEncoded to a valid FQDN
+appendFQDN :: FQDNEncoded -- ^ encoded FQDN
+           -> FQDN        -- ^ a valid FQDN
+           -> Dns FQDN    -- ^ validateFQDN $ FQDNEncoded ++ . ++ FQDN
+appendFQDN encoded dom =
+    validateFQDN fqdn
+  where
+    fqdn :: FQDNEncoded
+    fqdn = encodeFQDN $ B.concat [ toBytes encoded, ".", toBytes dom ]
+
+removeFQDNSuffix :: FQDNEncoded
+                 -> FQDN
+                 -> FQDNEncoded
+removeFQDNSuffix encoded dom =
+    encodeFQDN $ B.take (B.length encodedBs - B.length domBs - 1) encodedBs
+  where
+    encodedBs :: ByteString
+    encodedBs = toBytes encoded
+    domBs :: ByteString
+    domBs = toBytes dom
+
+-- | Check the FQDNEncoded is a valid FQDN and if it is, it returns the FQDN
 --
 -- 1. fullLength < 256
 -- 2. node's length < 64
 -- 3. char are elem of [a-z0-9.-]
-validateFQDN :: FQDNEncoded
+validateFQDN :: FQDNEncoded -- ^ the Encoded fqdn
              -> Dns FQDN
-validateFQDN invalidefqdn = fullLength invalidefqdn >>= nodeLengths >>= checkAlphabet >>= return . unsafeToFQDN
+validateFQDN req = fullLength req >>= nodeLengths >>= checkAlphabet >>= return . unsafeToFQDN
   where
     fullLength :: FQDNEncoded -> Dns FQDNEncoded
     fullLength fqdn
         | (B.length $ toBytes fqdn) < 256 = return fqdn
-        | otherwise = throwError "Network.DNS.API.Utils: checkEncoding: URL too long"
+        | otherwise = errorDns "Network.DNS.API.Utils: checkEncoding: URL too long"
     
     checkAlphabet :: FQDNEncoded -> Dns FQDNEncoded
     checkAlphabet fqdn
         | B.foldr checkWord8 True $ toBytes fqdn = return fqdn
-        | otherwise = throwError "Network.DNS.API.Utils: checkEncoding: URL contains non-base32-encoded char"
+        | otherwise = errorDns "Network.DNS.API.Utils: checkEncoding: URL contains non-base32-encoded char"
 
     checkWord8 :: Char -> Bool -> Bool
     checkWord8 _ False = False
@@ -48,7 +72,7 @@ validateFQDN invalidefqdn = fullLength invalidefqdn >>= nodeLengths >>= checkAlp
     nodeLengths :: FQDNEncoded -> Dns FQDNEncoded
     nodeLengths fqdn
         | isJust $ B.foldr checkNodeW (Just 0) $ toBytes fqdn = return fqdn
-        | otherwise = throwError "Network.DNS.API.Utils: checkEncoding: URL contains too long labels"
+        | otherwise = errorDns "Network.DNS.API.Utils: checkEncoding: URL contains too long labels"
 
     checkNodeW :: Char -> Maybe Int -> Maybe Int
     checkNodeW _ Nothing  = Nothing

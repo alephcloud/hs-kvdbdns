@@ -46,12 +46,9 @@ import Control.Concurrent.STM.TChan
 ------------------------------------------------------------------------------
 
 -- | Server configuration
-data API.Packable p => ServerConf context p = ServerConf
-  { query :: Connection context
-          -> API.FQDNEncoded
-          -> IO (Maybe (API.Response p)) -- ^ the method to perform a request
-  , inFail :: DNSFormat
-           -> IO (Either String DNSFormat) -- ^ the method to use to handle query failure
+data ServerConf context response = ServerConf
+  { query  :: Connection context -> API.FQDNEncoded -> IO (Maybe (API.Response response))
+  , inFail :: DNSFormat -> IO (Either String DNSFormat)
   }
 
 -- | Smart constructor for DNS API configuration
