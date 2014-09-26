@@ -11,6 +11,7 @@ module Network.DNS.API.Packer
     ( -- * Types
       DnsPacker
     , runDnsPacker
+    , getPackedSize
       -- * default tools
     , putWord8
     , putWord16
@@ -38,6 +39,9 @@ instance Monoid DnsPacker where
 
     mconcat [] = mempty
     mconcat a = foldr1 mappend a
+
+getPackedSize :: DnsPacker -> Int
+getPackedSize (DnsPacker _ size) = size
 
 -- | help to execute the packing of a bytestring
 runDnsPacker :: DnsPacker -> Dns ByteString

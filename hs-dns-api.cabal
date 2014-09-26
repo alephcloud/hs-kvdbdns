@@ -41,7 +41,7 @@ library
                      , hourglass
                      , byteable
                      , bsparse >= 0.0.3
-                     , bspack >= 0.0.1
+                     , bspack >= 0.0.2
   default-language:    Haskell2010
   ghc-options:       -Wall -fwarn-tabs -O2
 
@@ -57,7 +57,7 @@ Test-Suite           tests
                      , mtl
                      , transformers >= 0.4
                      , bsparse >= 0.0.3
-                     , bspack >= 0.0.1
+                     , bspack >= 0.0.2
                      , byteable
   default-language:    Haskell2010
 
@@ -72,7 +72,7 @@ Executable           Client
                        , mtl
                        , hourglass
                        , bsparse >= 0.0.3
-                       , bspack >= 0.0.1
+                       , bspack >= 0.0.2
     Buildable: True
   else
     Buildable: False
@@ -89,7 +89,7 @@ Executable           Server
                        , mtl
                        , transformers >= 0.4
                        , bsparse >= 0.0.3
-                       , bspack >= 0.0.1
+                       , bspack >= 0.0.2
                        , hs-dns-api
                        , hourglass
     Buildable: True

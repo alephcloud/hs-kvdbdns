@@ -20,6 +20,7 @@ module Network.DNS.API.Types
   , Encodable(..)
   , decodeFQDNEncoded
   , encodeFQDNEncoded
+  , dnsParse
     -- * Response
     -- ** Class
   , Packable(..)
