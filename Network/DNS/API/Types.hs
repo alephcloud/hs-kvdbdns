@@ -7,20 +7,12 @@
 -- Stability   : experimental
 -- Portability : unknown
 --
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+-- {-# LANGUAGE TypeSynonymInstances #-}
+-- {-# LANGUAGE FlexibleInstances #-}
 module Network.DNS.API.Types
-  ( Dns
-  , DnsIO
-  , errorDns
-  , errorDnsIO
-  , pureDns
-  , execDns
-  , execDnsIO
-    -- * Request
+  ( -- * Request
     -- ** FQDN encoding
-  , FQDNEncoded
+    FQDNEncoded
   , FQDN
   , encodeFQDN
   , unsafeToFQDN
@@ -36,46 +28,15 @@ module Network.DNS.API.Types
   ) where
 
 import Control.Applicative
-import Control.Monad.Except
-import Control.Monad.Identity
 
 import Data.Byteable
 import Data.ByteString (ByteString)
 import qualified Data.ByteString        as B
 import qualified Data.ByteString.Base32 as BSB32
 import qualified Data.ByteString.Parse  as BP
-import qualified Data.ByteString.Pack   as BP
 
-------------------------------------------------------------------------------
---                               Error monad                                --
-------------------------------------------------------------------------------
-
--- | Pure DNS error Monad
-newtype Dns   a = Dns { runDns :: Except String a }
-    deriving (Functor, Applicative, Monad)
--- | DNS error IO Monad
-newtype DnsIO a = DnsIO { runDnsIO :: ExceptT String IO a }
-    deriving (Functor, Applicative, Monad, MonadIO)
-
--- | lift a Dns into a DnsIO
-pureDns :: Dns a -> DnsIO a
-pureDns = (either (DnsIO . throwError) return) . execDns
-
--- | throw a Dns error
-errorDns :: String -> Dns a
-errorDns = Dns . throwError
-
--- | run the Dns
-execDns :: Dns a -> Either String a
-execDns = runExcept . runDns
-
--- | throw a DnsIO error
-errorDnsIO :: String -> DnsIO a
-errorDnsIO = DnsIO . throwError
-
--- | run the DnsIO
-execDnsIO :: DnsIO a -> IO (Either String a)
-execDnsIO = runExceptT . runDnsIO
+import Network.DNS.API.Error
+import Network.DNS.API.Packer
 
 ------------------------------------------------------------------------------
 --                                FQDN                                      --
@@ -118,14 +79,6 @@ dnsParse parser bs = do
         BP.ParseOK b v | B.null b  -> return v
                        | otherwise -> errorDns "Network.DNS.API.Types.dnsParse: unparsed data"
 
--- help to execute the packing of a bytestring
-dnsPack :: (BP.Packer a, Int) -> Dns ByteString
-dnsPack (packer, size) =
-    let l = BP.pack packer size
-    in  case l of
-            Left err -> errorDns $ "Network.DNS.API.dnsPack: pack fail: " ++ err ++ " " ++ (show size)
-            Right bs -> return bs
-
 ------------------------------------------------------------------------------
 --                                Encodable                                 --
 ------------------------------------------------------------------------------
@@ -136,7 +89,7 @@ dnsPack (packer, size) =
 -- encode the URL into a format that will be a valide format for every DNS
 -- servers our request may go through.
 class Encodable encodable where
-    encode :: encodable -> (BP.Packer (), Int) -- Dns FQDNEncoded
+    encode :: encodable -> DnsPacker
     decode :: BP.Parser encodable
 
 -- | decode a FQDNEncoded
@@ -149,7 +102,7 @@ decodeFQDNEncoded fqdn = decode32FQDNEncoded fqdn >>= dnsParse decode
 encodeFQDNEncoded :: Encodable encodable
                   => encodable
                   -> Dns FQDNEncoded
-encodeFQDNEncoded d = dnsPack (encode d) >>= encode32FQDNEncoded
+encodeFQDNEncoded d = runDnsPacker (encode d) >>= encode32FQDNEncoded
 
 -- | Encode into a FQDN compatible fornat
 encode32FQDNEncoded :: ByteString
@@ -186,7 +139,7 @@ decode32FQDNEncoded fqdn =
 -- It is use to pack/unpack (into bytestring) a command in the case of the
 -- proposed Request
 class Packable packable where
-    pack   :: packable -> (BP.Packer (), Int)
+    pack   :: packable -> DnsPacker
     unpack :: BP.Parser packable
 
 -- | unpack the given bytestring
@@ -197,4 +150,4 @@ unpackData = dnsParse unpack
 
 -- | pack the given data
 packData :: Packable packable => packable -> Dns ByteString
-packData = dnsPack . pack
+packData = runDnsPacker . pack

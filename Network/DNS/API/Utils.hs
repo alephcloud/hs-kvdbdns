@@ -20,6 +20,7 @@ import qualified Data.ByteString.Char8 as B
 import Data.Maybe (isJust)
 
 import Network.DNS.API.Types
+import Network.DNS.API.Error
 
 -- | Append an FQDNEncoded to a valid FQDN
 appendFQDN :: FQDNEncoded -- ^ encoded FQDN

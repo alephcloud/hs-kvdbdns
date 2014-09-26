@@ -14,6 +14,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Parse as BP
 import qualified Data.ByteString.Pack  as BP
+import Data.Monoid ((<>))
 import Data.Word (Word8)
 
 import Test.Tasty
@@ -23,6 +24,8 @@ import Control.Applicative
 import ArbitraryByteString
 
 import Network.DNS.API.Types
+import Network.DNS.API.Error
+import Network.DNS.API.Packer
 
 import Control.Monad.Except
 import Data.Functor.Identity
@@ -35,8 +38,7 @@ takeSizedString =
     (fromIntegral <$> BP.anyByte) >>= BP.take
 
 instance Packable TestResponse where
-    pack (TestResponse b1 b2) = ( BP.putStorable (fromIntegral $ B.length b1 :: Word8) >> BP.putByteString b1 >> BP.putByteString b2
-                                , 1 + B.length b1 + B.length b2)
+    pack (TestResponse b1 b2) = putSizedByteString b1 <> putByteString b2
     unpack = TestResponse <$> takeSizedString
                           <*> BP.takeAll
 

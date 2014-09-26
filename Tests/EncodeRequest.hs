@@ -16,12 +16,15 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Parse as BP
 import qualified Data.ByteString.Pack  as BP
+import Data.Monoid ((<>))
 import Data.Word (Word8)
 
 import Test.Tasty
 import Test.Tasty.QuickCheck
 
 import Network.DNS.API.Types
+import Network.DNS.API.Error
+import Network.DNS.API.Packer
 import Control.Applicative
 
 import ArbitraryByteString
@@ -36,7 +39,7 @@ data TestCommand = TestCommand Word8 ByteString
     deriving (Show, Eq)
 
 instance Encodable TestCommand where
-    encode (TestCommand w bs) = (BP.putStorable w >> BP.putByteString bs, B.length bs + 1)
+    encode (TestCommand w bs) = putWord8 w <> putByteString bs
     decode = TestCommand <$> BP.anyByte <*> BP.takeAll
 
 data TestRequest = TestRequest TestCommand FQDN

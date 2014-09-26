@@ -30,6 +30,7 @@ import Data.Monoid (mconcat)
 import Network.DNS hiding (encode, decode, lookup)
 import qualified Network.DNS as DNS
 import Network.DNS.API.Types
+import Network.DNS.API.Error
 import Network.DNS.API.Connection (Connection)
 import qualified Network.DNS.API.Connection as API
 import Network.Socket hiding (recvFrom, recv, send)

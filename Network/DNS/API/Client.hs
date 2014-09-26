@@ -29,6 +29,7 @@ import qualified Data.ByteString as B
 import Data.Hourglass.Types
 
 import qualified Network.DNS as DNS
+import Network.DNS.API.Error
 import Network.DNS.API.Types
 import Network.DNS.API.Utils
 import Network.Socket (PortNumber)

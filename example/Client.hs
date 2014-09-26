@@ -12,10 +12,9 @@ import System.Environment
 import Network.DNS.API.Client
 import Network.DNS.API.Types
 import Network.DNS.API.Utils
+import Network.DNS.API.Error
 
 import API
-import Control.Monad.Except
-import Control.Monad.Identity
 
 import Data.Char   (ord)
 import Data.Word (Word8)

@@ -50,6 +50,7 @@ module Network.DNS.API
   , defaultServer
   ) where
 
+import Network.DNS.API.Error
 import Network.DNS.API.Types
 import Network.DNS.API.Utils
 import Network.DNS.API.Client

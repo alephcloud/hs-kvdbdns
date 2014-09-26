@@ -24,6 +24,8 @@ library
                      , Network.DNS.API.Server
                      , Network.DNS.API.Connection
                      , Network.DNS.API.Client
+                     , Network.DNS.API.Packer
+                     , Network.DNS.API.Error
                      , Network.DNS.API.Types
                      , Network.DNS.API.Utils
                      , Data.ByteString.Base32

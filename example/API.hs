@@ -10,11 +10,13 @@
 module API where
 
 import Network.DNS.API.Types
+import Network.DNS.API.Packer
 import Control.Applicative
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Parse as BP
 import qualified Data.ByteString.Pack  as BP
+import Data.Monoid ((<>))
 import Data.Word (Word8)
 
 data Command = Command
@@ -23,9 +25,7 @@ data Command = Command
   } deriving (Show, Eq)
 
 instance Encodable Command where
-    encode (Command c p) =
-        let neededlength = B.length c + 1 + B.length p
-        in  (commandPacker (Command c p) (B.length c), neededlength)
+    encode (Command c p) = putSizedByteString c <> putByteString p
     decode = commandParser
 
 commandPacker :: Command -> Int -> BP.Packer ()
@@ -46,5 +46,5 @@ data Return = Return ByteString
     deriving (Show, Eq)
 
 instance Packable Return where
-    pack (Return b) = (BP.putByteString b, B.length b)
+    pack (Return b) = putByteString b
     unpack = Return <$> BP.takeAll

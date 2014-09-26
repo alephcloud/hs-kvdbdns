@@ -22,6 +22,7 @@ import Data.Maybe
 import Network.DNS.API.Server
 import Network.DNS.API.Types as API
 import Network.DNS.API.Utils as API
+import Network.DNS.API.Error
 import API
 
 import System.Environment
@@ -36,7 +37,7 @@ main = do
   args <- getArgs
   name <- getProgName
   case args of
-    [d] -> do let d' = API.execDns $ API.validateFQDN $ API.encodeFQDN $ BS.pack d
+    [d] -> do let d' = execDns $ validateFQDN $ encodeFQDN $ BS.pack d
               let dom = either (\err -> error $ "the given domain address is not a valid FQDN: " ++ err)
                                (id) d'
               sl <- getDefaultConnections (Just "8053") (Seconds 3) Nothing >>= return.catMaybes
