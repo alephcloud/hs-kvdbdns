@@ -30,11 +30,13 @@ module Network.DNS.API.Types
 
 import Control.Applicative
 
+import qualified Codec.Binary.Base32    as BSB32
 import Data.Byteable
 import Data.ByteString (ByteString)
 import qualified Data.ByteString        as B
-import qualified Data.ByteString.Base32 as BSB32
+import qualified Data.ByteString.Char8  as BC
 import qualified Data.ByteString.Parse  as BP
+import Data.Char (toUpper, toLower)
 
 import Network.DNS.API.Error
 import Network.DNS.API.Packer
@@ -111,7 +113,7 @@ encode32FQDNEncoded :: ByteString
 encode32FQDNEncoded bs = encodeFQDN <$> fqdn
   where
     fqdn :: Dns ByteString
-    fqdn = either (errorDns) (\e -> return $ B.intercalate (B.pack [0x2E]) $ splitByNode e) $ BSB32.encode bs
+    fqdn = return . B.intercalate (BC.pack ['.']) . splitByNode $ replacePadding $ BSB32.encode bs
 
     splitByNode :: ByteString -> [ByteString]
     splitByNode b
@@ -120,13 +122,27 @@ encode32FQDNEncoded bs = encodeFQDN <$> fqdn
       where
         (node, xs) = B.splitAt 63 b
 
+replacePadding :: ByteString -> ByteString
+replacePadding bs = BC.map filterPadding bs
+  where
+    filterPadding :: Char -> Char
+    filterPadding '=' = '9'
+    filterPadding c   = toLower c
+
+resetPadding :: ByteString -> ByteString
+resetPadding bs = BC.map filterPadding bs
+  where
+    filterPadding :: Char -> Char
+    filterPadding '9' = '='
+    filterPadding c   = toUpper c
+
 -- | base 32 decode a FQDN
 -- but do not decode the Request
 decode32FQDNEncoded :: FQDNEncoded
                     -> Dns ByteString
 decode32FQDNEncoded fqdn =
-    case BSB32.decode $ B.concat $ B.split 0x2E bs of
-        Left err  -> errorDns err
+    case BSB32.decode $ B.concat $ BC.split '.' $ resetPadding bs of
+        Left  _   -> errorDns "unable to decode (from base 32) the given FQDN."
         Right dbs -> return dbs
   where
     bs :: ByteString

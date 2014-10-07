@@ -28,10 +28,10 @@ library
                      , Network.DNS.API.Error
                      , Network.DNS.API.Types
                      , Network.DNS.API.Utils
-                     , Data.ByteString.Base32
   build-depends:       base >=4.7 && <4.8
                      , network
                      , dns  >= 1.4.4
+                     , sandi
                      , bytestring
                      , data-default
                      , stm

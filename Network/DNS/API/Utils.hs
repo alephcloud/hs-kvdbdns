@@ -9,11 +9,13 @@
 --
 {-# LANGUAGE OverloadedStrings #-}
 module Network.DNS.API.Utils
-   ( validateFQDN
-   , appendFQDN
-   , removeFQDNSuffix
-   ) where
+    ( validateFQDN
+    , appendFQDN
+    , removeFQDNSuffix
+    , guessEncodedLength
+    ) where
 
+import Control.Applicative
 import Data.Byteable
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
@@ -82,3 +84,17 @@ validateFQDN req = fullLength req >>= nodeLengths >>= checkAlphabet >>= return .
         | c > 64    = Nothing
         | w == '.'  = Just 0
         | otherwise = Just $ c + 1
+
+-- | Guess what could be the encoded length
+--
+-- > bs :: ByteString
+-- > (length.encoded bs) - (guessEncoded.length bs) < 8
+guessEncodedLength :: Int -- ^ the data length (in byte)
+                   -> Int -- ^ the maximum length of the encoded data (in byte)
+guessEncodedLength 0 = 0
+guessEncodedLength l
+  | modulo == 0 = 8 * l `div` 5
+  | otherwise   = 8 * (l + 5 - modulo) `div` 5
+  where
+    modulo :: Int
+    modulo = l `mod` 5
