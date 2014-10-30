@@ -63,10 +63,10 @@ sendQueryRaw' resolver fqdn = do
   where
     doLookup :: DNS.Domain -> DnsIO [DNS.RDATA]
     doLookup d = do
-      result <- liftIO $ tryAny (DNS.lookup resolver d DNS.TXT) -- :: IO (Either DNS.DNSError [DNS.RDATA])
+      result <- liftIO $ tryAny (DNS.lookup resolver d DNS.TXT)
                                 (\_ -> return $ Left DNS.OperationRefused)
       case result of
-        Left err -> pureDns $ errorDns $ "DNS api: sendQuery: " ++ (show err)
+        Left err -> pureDns $ errorDns $ "Network.DNS.API.Client.sendQueryRaw': (" ++ (show fqdn) ++ "): " ++ (show err)
         Right l  -> return l
 
 ------------------------------------------------------------------------------
@@ -81,7 +81,7 @@ sendQueryRawTo :: DNS.ResolvSeed -- ^ the DNSResolverSeed
                -> DnsIO ByteString
 sendQueryRawTo seed fqdn = do
    ret <- liftIO $ DNS.withResolver seed $ \resolver ->
-                      execDnsIO $ sendQueryRaw' resolver fqdn
+                        execDnsIO $ sendQueryRaw' resolver fqdn
    case ret of
      Left err -> errorDnsIO err
      Right a  -> return a

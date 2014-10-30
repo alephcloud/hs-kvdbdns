@@ -15,7 +15,6 @@ module Network.DNS.API.Utils
     , guessEncodedLength
     ) where
 
-import Control.Applicative
 import Data.Byteable
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
