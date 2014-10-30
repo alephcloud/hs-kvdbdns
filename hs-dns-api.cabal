@@ -2,7 +2,7 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                hs-dns-api
-version:             0.1.0.0
+version:             0.1.0.1
 synopsis:            A simple API to send command over DNS protocol
 -- description:
 license:             BSD3
