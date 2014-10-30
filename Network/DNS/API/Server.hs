@@ -56,17 +56,14 @@ data ServerConf context = ServerConf
   , inFail :: DNSFormat -> IO (Either String DNSFormat)
   }
 
--- | Smart constructor for DNS API configuration
---
--- Will set the TXT handler for you
--- and will configure the other to always fail properly
-createServerConf :: (Connection a -> FQDNEncoded -> DnsIO ByteString)
-                 -> ServerConf a
-createServerConf function =
+-- | Create a default Server Conf with every queries configured to
+-- fail properly
+createServerConf :: ServerConf context
+createServerConf =
    ServerConf
       { queryA     = recordNotImplemented
       , queryAAAA  = recordNotImplemented
-      , queryTXT   = function
+      , queryTXT   = recordNotImplemented
       , queryNS    = recordNotImplemented
       , queryCNAME = recordNotImplemented
       , queryDNAME = recordNotImplemented

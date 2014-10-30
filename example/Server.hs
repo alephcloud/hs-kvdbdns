@@ -45,7 +45,7 @@ main = do
     _     -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
   where
     serverConf :: FQDN -> ServerConf Int
-    serverConf dom = createServerConf (queryDummy dom)
+    serverConf dom = createServerConf { queryTXT = queryDummy dom }
 
 ------------------------------------------------------------------------------
 --                          API: queries handling                          --
