@@ -12,9 +12,13 @@ module Network.DNS.API.Client
       -- ** main methods
       sendQuery
     , sendQueryTo
+    , sendQueryType
+    , sendQueryToType
       -- ** raw methods
     , sendQueryRaw
     , sendQueryRawTo
+    , sendQueryRawType
+    , sendQueryRawToType
       -- * DNS resolver
     , makeResolvSeedSafe
     ) where
@@ -53,17 +57,17 @@ parseQuery q =
     toByteString (DNS.RD_TXT bs) = return bs
     toByteString d               = errorDns $ "unexpected type: " ++ (show d)
 
--- | Send a Raw query
-sendQueryRaw' :: DNS.Resolver
-              -> FQDN
-              -> DnsIO ByteString
-sendQueryRaw' resolver fqdn = do
+sendQueryRawType' :: DNS.TYPE
+                  -> DNS.Resolver
+                  -> FQDN
+                  -> DnsIO ByteString
+sendQueryRawType' t resolver fqdn = do
     r <- doLookup $ toBytes fqdn
     pureDns $ parseQuery r
   where
     doLookup :: DNS.Domain -> DnsIO [DNS.RDATA]
     doLookup d = do
-      result <- liftIO $ tryAny (DNS.lookup resolver d DNS.TXT)
+      result <- liftIO $ tryAny (DNS.lookup resolver d t)
                                 (\_ -> return $ Left DNS.OperationRefused)
       case result of
         Left err -> pureDns $ errorDns $ "Network.DNS.API.Client.sendQueryRaw': (" ++ (show fqdn) ++ "): " ++ (show err)
@@ -75,25 +79,49 @@ sendQueryRaw' resolver fqdn = do
 
 -- Raw queries ---------------------------------------------------------------
 
--- | Send a raw query with the given resolvSeed
-sendQueryRawTo :: DNS.ResolvSeed -- ^ the DNSResolverSeed
-               -> FQDN
-               -> DnsIO ByteString
-sendQueryRawTo seed fqdn = do
+sendQueryRawToType :: DNS.TYPE
+                   -> DNS.ResolvSeed -- ^ the DNSResolverSeed
+                   -> FQDN
+                   -> DnsIO ByteString
+sendQueryRawToType t seed fqdn = do
    ret <- liftIO $ DNS.withResolver seed $ \resolver ->
-                        execDnsIO $ sendQueryRaw' resolver fqdn
+                        execDnsIO $ sendQueryRawType' t resolver fqdn
    case ret of
      Left err -> errorDnsIO err
      Right a  -> return a
 
+-- | Send a raw query with the given resolvSeed
+sendQueryRawTo :: DNS.ResolvSeed -- ^ the DNSResolverSeed
+               -> FQDN
+               -> DnsIO ByteString
+sendQueryRawTo = sendQueryRawToType DNS.TXT
+
+-- | send a Raw query using the default resolver
+sendQueryRawType :: DNS.TYPE
+                 -> FQDN
+                 -> DnsIO ByteString
+sendQueryRawType t fqdn = do
+    rs <- liftIO $ DNS.makeResolvSeed DNS.defaultResolvConf
+    sendQueryRawToType t rs fqdn
+
 -- | send a Raw query using the default resolver
 sendQueryRaw :: FQDN
              -> DnsIO ByteString
-sendQueryRaw fqdn = do
-    rs <- liftIO $ DNS.makeResolvSeed DNS.defaultResolvConf
-    sendQueryRawTo rs fqdn
+sendQueryRaw = sendQueryRawType DNS.TXT
 
 -- Generic queries -----------------------------------------------------------
+
+-- | Send a @t@ record query to the the given DNS Resolver (seed)
+sendQueryToType :: (Packable response, Encodable request)
+                => DNS.TYPE
+                -> DNS.ResolvSeed -- ^ the DNSResolverSeed
+                -> request
+                -> FQDN
+                -> DnsIO response
+sendQueryToType t seed req dom = do
+    fqdn <- pureDns $ encodeFQDNEncoded req >>= \e -> appendFQDN e dom
+    ret <- sendQueryRawToType t seed fqdn
+    pureDns $ unpackData ret
 
 -- | Send a TXT query with the given resolvSeed
 sendQueryTo :: (Packable response, Encodable request)
@@ -101,10 +129,19 @@ sendQueryTo :: (Packable response, Encodable request)
             -> request
             -> FQDN
             -> DnsIO response
-sendQueryTo seed req dom = do
-    fqdn <- pureDns $ encodeFQDNEncoded req >>= \e -> appendFQDN e dom
-    ret <- sendQueryRawTo seed fqdn
-    pureDns $ unpackData ret
+sendQueryTo = sendQueryToType DNS.TXT
+
+-- | Send a query with the default DNS Resolver
+--
+-- Will send a record @type@ to the default DNS Resolver
+sendQueryType :: (Packable response, Encodable request)
+              => DNS.TYPE
+              -> request
+              -> FQDN
+              -> DnsIO response
+sendQueryType t req dom = do
+    rs <- liftIO $ makeResolvSeedSafe Nothing Nothing Nothing Nothing
+    sendQueryToType t rs req dom
 
 -- | Send a TXT query with the default DNS Resolver
 --
@@ -119,9 +156,7 @@ sendQuery :: (Packable response, Encodable request)
           => request
           -> FQDN
           -> DnsIO response
-sendQuery req dom = do
-    rs <- liftIO $ makeResolvSeedSafe Nothing Nothing Nothing Nothing
-    sendQueryTo rs req dom
+sendQuery = sendQueryType DNS.TXT
 
 ------------------------------------------------------------------------------
 -- ResolvSeed helper
