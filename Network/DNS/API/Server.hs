@@ -20,14 +20,15 @@ module Network.DNS.API.Server
 import Control.Monad
 import Control.Applicative
 
+import Data.Byteable
 import Data.ByteString (ByteString)
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as SL (toChunks, fromChunks)
 import Data.Hourglass.Types
-import Data.Maybe
+import Data.IP
 import Data.Monoid (mconcat)
 
-import Network.DNS hiding (encode, decode, lookup)
+import Network.DNS hiding (encode, decode, lookup, responseA, responseAAAA)
 import qualified Network.DNS as DNS
 import Network.DNS.API.Types
 import Network.DNS.API.Error
@@ -45,39 +46,155 @@ import Control.Concurrent.STM.TChan
 
 -- | Server configuration
 data ServerConf context = ServerConf
-  { query  :: Connection context -> FQDNEncoded -> DnsIO ByteString
+  { queryA     :: Connection context -> FQDNEncoded -> DnsIO [IPv4]
+  , queryAAAA  :: Connection context -> FQDNEncoded -> DnsIO [IPv6]
+  , queryTXT   :: Connection context -> FQDNEncoded -> DnsIO ByteString
+  , queryNS    :: Connection context -> FQDNEncoded -> DnsIO [FQDN]
+  , queryCNAME :: Connection context -> FQDNEncoded -> DnsIO [FQDN]
+  , queryDNAME :: Connection context -> FQDNEncoded -> DnsIO [FQDN]
+  , queryPTR   :: Connection context -> FQDNEncoded -> DnsIO [FQDN]
   , inFail :: DNSFormat -> IO (Either String DNSFormat)
   }
 
 -- | Smart constructor for DNS API configuration
 --
--- Use this function instead of the default one:
--- > let conf = def :: ServerConf
--- this method will only refuse every DNS query and will return an error Code : ServFail
---
--- you need to replace the @query@ method. The best way to use it is to use this function
+-- Will set the TXT handler for you
+-- and will configure the other to always fail properly
 createServerConf :: (Connection a -> FQDNEncoded -> DnsIO ByteString)
                  -> ServerConf a
 createServerConf function =
    ServerConf
-      { query   = function
-      , inFail  = inFailError
+      { queryA     = recordNotImplemented
+      , queryAAAA  = recordNotImplemented
+      , queryTXT   = function
+      , queryNS    = recordNotImplemented
+      , queryCNAME = recordNotImplemented
+      , queryDNAME = recordNotImplemented
+      , queryPTR   = recordNotImplemented
+      , inFail     = return . Right . failError
       }
+  where
+    recordNotImplemented :: Connection context -> FQDNEncoded -> DnsIO a
+    recordNotImplemented _ _ = pureDns $ errorDns "Record not implemented"
 
--- | Default implementation of an inFail
-inFailError :: DNSFormat -> IO (Either String DNSFormat)
-inFailError req =
+failError :: DNSFormat -> DNSFormat
+failError req =
   let hd = header req
       flg = flags hd
-  in  return $ Right $ req { header = hd { flags = flg { qOrR = QR_Response
-                                                       , rcode = ServFail
-                                                       }
-                                         }
-                           }
+  in  req { header = hd { flags = flg { qOrR = QR_Response
+                                      , rcode = ServFail
+                                      }
+                        }
+          }
 
 ------------------------------------------------------------------------------
 --                         The main function                                --
 ------------------------------------------------------------------------------
+
+-- Handle a request:
+-- try the query function given in the ServerConf
+-- if it fails, then call the given proxy
+handleRequest :: ServerConf a -> Connection a -> DNSFormat -> IO (Either String ByteString)
+handleRequest conf conn req = do
+    r <- case qtype q of
+            DNS.A     -> handleRequestA    $ queryA     conf conn fqdn
+            DNS.AAAA  -> handleRequestAAAA $ queryAAAA  conf conn fqdn
+            DNS.TXT   -> handleRequestTXT  $ queryTXT   conf conn fqdn
+            DNS.NS    -> handleRequestFQDN DNS.NS    $ queryNS    conf conn fqdn
+            DNS.CNAME -> handleRequestFQDN DNS.CNAME $ queryCNAME conf conn fqdn
+            DNS.DNAME -> handleRequestFQDN DNS.DNAME $ queryDNAME conf conn fqdn
+            DNS.PTR   -> handleRequestFQDN DNS.PTR   $ queryPTR   conf conn fqdn
+            _         -> either error id <$> inFail conf req
+    return $ Right $ mconcat $ SL.toChunks $ DNS.encode r
+  where
+    q :: Question
+    q = head $ question req
+    fqdn :: FQDNEncoded
+    fqdn = encodeFQDN $ qname q
+
+    ident :: Int
+    ident = identifier . header $ req
+
+    handleRequestFQDN :: DNS.TYPE -> DnsIO [FQDN] -> IO DNSFormat
+    handleRequestFQDN t action = do
+        mres <- execDnsIO action
+        return $ case mres of
+            Left  err -> failError req
+            Right dn  -> responseFQDN q ident t dn
+
+    handleRequestA :: DnsIO [IPv4] -> IO DNSFormat
+    handleRequestA action = do
+        mres <- execDnsIO action
+        return $ case mres of
+            Left  err -> failError req
+            Right l   -> responseA q ident l
+
+
+    handleRequestAAAA :: DnsIO [IPv6] -> IO DNSFormat
+    handleRequestAAAA action = do
+        mres <- execDnsIO action
+        return $ case mres of
+            Left  err -> failError req
+            Right l   -> responseAAAA q ident l
+
+    handleRequestTXT :: DnsIO ByteString -> IO DNSFormat
+    handleRequestTXT action = do
+        mres <- execDnsIO action
+        return $ case mres of
+            Left  err -> failError req
+            Right bs  -> responseTXT q ident (splitTxt bs)
+
+responseFQDN :: Question -> Int -> DNS.TYPE -> [FQDN] -> DNSFormat
+responseFQDN q ident t l =
+    let hd = header defaultResponse
+        dom = qname q
+        al = map (\fqdn -> ResourceRecord dom t 0 (f fqdn) (helper fqdn)) l
+    in  defaultResponse
+            { header = hd { identifier = ident, qdCount = 1, anCount = length al }
+            , question = [q]
+            , answer = al
+            }
+  where
+    f :: FQDN -> Int
+    f fqdn = B.length $ toBytes fqdn
+    helper :: FQDN -> DNS.RD a
+    helper fqdn = case t of
+        DNS.NS    -> DNS.RD_NS    $ toBytes fqdn
+        DNS.CNAME -> DNS.RD_CNAME $ toBytes fqdn
+        DNS.DNAME -> DNS.RD_DNAME $ toBytes fqdn
+        DNS.PTR   -> DNS.RD_PTR   $ toBytes fqdn
+        _         -> error $ "cannot build an ResponseFQDN with type: " ++ show t
+responseA :: Question -> Int -> [IPv4] -> DNSFormat
+responseA q ident l =
+    let hd = header defaultResponse
+        dom = qname q
+        al = map (\ip -> ResourceRecord dom DNS.A 0 4 (RD_A ip)) l
+    in  defaultResponse
+            { header = hd { identifier = ident, qdCount = 1, anCount = length al }
+            , question = [q]
+            , answer = al
+            }
+responseAAAA :: Question -> Int -> [IPv6] -> DNSFormat
+responseAAAA q ident l =
+    let hd = header defaultResponse
+        dom = qname q
+        al = map (\ip -> ResourceRecord dom DNS.AAAA 0 16 (RD_AAAA ip)) l
+    in  defaultResponse
+            { header = hd { identifier = ident, qdCount = 1, anCount = length al }
+            , question = [q]
+            , answer = al
+            }
+
+responseTXT :: Question -> Int -> [ByteString] -> DNSFormat
+responseTXT q ident l =
+  let hd = header defaultResponse
+      dom = qname q
+      al = map (\txt -> ResourceRecord dom TXT 0 (B.length txt) (RD_TXT txt)) l
+  in  defaultResponse
+        { header = hd { identifier = ident, qdCount = 1, anCount = length al }
+        , question = [q]
+        , answer = al
+        }
 
 splitTxt :: ByteString -> [ByteString]
 splitTxt bs
@@ -85,39 +202,6 @@ splitTxt bs
   | otherwise = node:(splitTxt xs)
   where
     (node, xs) = B.splitAt 255 bs
-
--- Handle a request:
--- try the query function given in the ServerConf
--- if it fails, then call the given proxy
-handleRequest :: ServerConf a -> Connection a -> DNSFormat -> IO (Either String ByteString)
-handleRequest conf conn req =
-    case listToMaybe . filterTXT . question $ req of
-        Nothing -> inFail conf req >>= return.inFailWrapper
-        Just q -> do
-            mres <- execDnsIO $ query conf conn $ encodeFQDN $ qname q
-            case mres of
-                Left err -> inFail conf req >>= return.inFailWrapper -- TODO
-                Right bs -> return $ Right $ mconcat $ SL.toChunks $ DNS.encode $ responseTXT q (splitTxt bs)
-  where
-    filterTXT = filter ((==TXT) . qtype)
-
-    ident :: Int
-    ident = identifier . header $ req
-
-    inFailWrapper :: Either String DNSFormat -> Either String ByteString
-    inFailWrapper (Right r) = Right $ mconcat . SL.toChunks $ DNS.encode r
-    inFailWrapper (Left er) = Left er
-
-    responseTXT :: Question -> [ByteString] -> DNSFormat
-    responseTXT q l =
-      let hd = header defaultResponse
-          dom = qname q
-          al = map (\txt -> ResourceRecord dom TXT 0 (B.length txt) (RD_TXT txt)) l
-      in  defaultResponse
-            { header = hd { identifier = ident, qdCount = 1, anCount = length al }
-            , question = [q]
-            , answer = al
-            }
 
 -- | imported from dns:Network/DNS/Internal.hs
 --

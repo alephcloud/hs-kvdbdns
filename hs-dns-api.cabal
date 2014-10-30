@@ -32,6 +32,7 @@ library
                      , network
                      , dns  >= 1.4.4
                      , sandi
+                     , iproute
                      , bytestring
                      , data-default
                      , stm
