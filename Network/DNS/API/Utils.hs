@@ -11,6 +11,8 @@
 module Network.DNS.API.Utils
     ( validateFQDN
     , appendFQDN
+    , splitToNodes
+    , popRootNode
     , removeFQDNSuffix
     , guessEncodedLength
     ) where
@@ -37,16 +39,37 @@ appendFQDN encoded dom =
 removeFQDNSuffix :: FQDNEncoded
                  -> FQDN
                  -> Dns FQDNEncoded
-removeFQDNSuffix encoded dom
-    | domBs == suffix = return $ encodeFQDN prefix
-    | otherwise       = errorDns "suffix does not match"
+removeFQDNSuffix encoded dom =
+    case makeRemoveSuffix encNodes domNodes of
+        Left err -> errorDns err
+        Right l  -> return $ nodesToFQDN $ reverse l
   where
-    (prefix, suffix) = B.splitAt (B.length encodedBs - B.length domBs) encodedBs
+    domNodes :: [FQDNEncoded]
+    domNodes = reverse $ splitToNodes $ encodeFQDN $ toBytes dom
 
-    encodedBs :: ByteString
-    encodedBs = toBytes encoded
-    domBs :: ByteString
-    domBs = toBytes dom
+    encNodes :: [FQDNEncoded]
+    encNodes = reverse $ splitToNodes encoded
+
+    makeRemoveSuffix :: [FQDNEncoded] -> [FQDNEncoded] -> Either String [FQDNEncoded]
+    makeRemoveSuffix a  [] = Right a
+    makeRemoveSuffix [] (_:_)  = Left "suffix larger than data"
+    makeRemoveSuffix (x:xs) (y:ys)
+        | x == y    = makeRemoveSuffix xs ys
+        | otherwise = Left "suffix does not match"
+
+splitToNodes :: FQDNEncoded -> [FQDNEncoded]
+splitToNodes fqdn = map encodeFQDN $ B.split '.' $ toBytes fqdn
+
+nodesToFQDN :: [FQDNEncoded] -> FQDNEncoded
+nodesToFQDN = encodeFQDN . B.intercalate "." . map toBytes
+
+popRootNode :: FQDNEncoded -> (FQDNEncoded, FQDNEncoded)
+popRootNode fqdn =
+    let (pre, suf) = B.spanEnd ((/=) '.') bs
+    in  (encodeFQDN pre, encodeFQDN suf)
+  where
+    bs :: ByteString
+    bs = toBytes fqdn
 
 -- | Check the FQDNEncoded is a valid FQDN and if it is, it returns the FQDN
 --
