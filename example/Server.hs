@@ -22,6 +22,7 @@ import Data.Maybe
 import Network.DNS.API.Server
 import Network.DNS.API.Types as API
 import Network.DNS.API.Utils as API
+import Network.DNS.API.FQDN as API
 import Network.DNS.API.Error
 import API
 
@@ -37,14 +38,14 @@ main = do
   args <- getArgs
   name <- getProgName
   case args of
-    [d] -> do let d' = execDns $ validateFQDN $ encodeFQDN $ BS.pack d
+    [d] -> do let d' = execDns $ validateFQDN $ BS.pack d
               let dom = either (\err -> error $ "the given domain address is not a valid FQDN: " ++ err)
                                (id) d'
               sl <- getDefaultConnections (Just "8053") (Seconds 3) Nothing >>= return.catMaybes
               defaultServer (serverConf dom) sl
     _     -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
   where
-    serverConf :: FQDN -> ServerConf Int
+    serverConf :: ValidFQDN -> ServerConf Int
     serverConf dom = createServerConf { queryTXT = queryDummy dom }
 
 ------------------------------------------------------------------------------
@@ -69,12 +70,12 @@ exampleDB =
 -- * db  : return the DB
 --
 -- This actual example just ignore the connection context and information
-queryDummy :: API.FQDN
+queryDummy :: ValidFQDN
            -> Connection Int
-           -> API.FQDNEncoded
+           -> ValidFQDN
            -> DnsIO ByteString
 queryDummy dom conn req = do
-  let eReq = execDns $ decodeFQDNEncoded =<< removeFQDNSuffix req dom :: Either String Command
+  let eReq = execDns $ decodeFQDNEncoded =<< removeSuffix req dom :: Either String Command
   liftIO $ print $ "Connection: " ++ (show $ getSockAddr conn) ++ " opened: " ++ (show $ getCreationDate conn)
   pureDns $ case eReq of
     Left err -> errorDns err

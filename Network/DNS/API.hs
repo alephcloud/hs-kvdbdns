@@ -10,13 +10,12 @@
 module Network.DNS.API
   ( -- * Types
     -- ** FQDN
-    FQDN
-  , FQDNEncoded
-  , encodeFQDN
-  , unsafeToFQDN
+    FQDN(..)
+  , Node(..)
+  , ValidFQDN
+  , UnsafeFQDN(..)
   , validateFQDN
-  , appendFQDN
-  , removeFQDNSuffix
+  , unsafeValidFQDN
     -- ** Errors
     -- *** pure
   , Dns
@@ -52,6 +51,6 @@ module Network.DNS.API
 
 import Network.DNS.API.Error
 import Network.DNS.API.Types
-import Network.DNS.API.Utils
+import Network.DNS.API.FQDN
 import Network.DNS.API.Client
 import Network.DNS.API.Server

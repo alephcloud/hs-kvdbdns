@@ -10,14 +10,8 @@
 -- {-# LANGUAGE TypeSynonymInstances #-}
 -- {-# LANGUAGE FlexibleInstances #-}
 module Network.DNS.API.Types
-  ( -- * Request
-    -- ** FQDN encoding
-    FQDNEncoded
-  , FQDN
-  , encodeFQDN
-  , unsafeToFQDN
-    -- ** Class
-  , Encodable(..)
+  ( -- ** Class
+    Encodable(..)
   , decodeFQDNEncoded
   , encodeFQDNEncoded
   , dnsParse
@@ -28,8 +22,6 @@ module Network.DNS.API.Types
   , unpackData
   ) where
 
-import Control.Applicative
-
 import qualified Codec.Binary.Base32    as BSB32
 import Data.Byteable
 import Data.ByteString (ByteString)
@@ -39,34 +31,8 @@ import qualified Data.ByteString.Parse  as BP
 import Data.Char (toUpper, toLower)
 
 import Network.DNS.API.Error
+import Network.DNS.API.FQDN
 import Network.DNS.API.Packer
-
-------------------------------------------------------------------------------
---                                FQDN                                      --
-------------------------------------------------------------------------------
-
--- | represent a encoded but not validated FQDN
--- (means that this FQDN is base32 encoded and but may not be a valide FQDN
-newtype FQDNEncoded = FQDNEncoded ByteString
-    deriving (Show, Eq, Ord)
-
-instance Byteable FQDNEncoded where
-    toBytes (FQDNEncoded bs) = bs
-
--- | build a encoded FQDN
-encodeFQDN :: ByteString -> FQDNEncoded
-encodeFQDN bs = FQDNEncoded bs
-
--- | represent a valide FQDN
-newtype FQDN = FQDN ByteString
-    deriving (Show, Eq, Ord)
-
-instance Byteable FQDN where
-    toBytes (FQDN bs) = bs
-
--- | for FQDN
-unsafeToFQDN :: FQDNEncoded -> FQDN
-unsafeToFQDN = FQDN . toBytes
 
 ------------------------------------------------------------------------------
 --                                   Helpers                                --
@@ -96,31 +62,45 @@ class Encodable encodable where
     decode :: BP.Parser encodable
 
 -- | decode a FQDNEncoded
-decodeFQDNEncoded :: Encodable encodable
-                  => FQDNEncoded
+decodeFQDNEncoded :: (Encodable encodable, FQDN fqdn)
+                  => fqdn
                   -> Dns encodable
 decodeFQDNEncoded fqdn = decode32FQDNEncoded fqdn >>= dnsParse decode
 
 -- | encode
-encodeFQDNEncoded :: Encodable encodable
+encodeFQDNEncoded :: (Encodable encodable, FQDN fqdn)
                   => encodable
-                  -> Dns FQDNEncoded
+                  -> Dns fqdn
 encodeFQDNEncoded d = runDnsPacker (encode d) >>= encode32FQDNEncoded
 
 -- | Encode into a FQDN compatible fornat
-encode32FQDNEncoded :: ByteString
-                    -> Dns FQDNEncoded
-encode32FQDNEncoded bs = encodeFQDN <$> fqdn
+encode32FQDNEncoded :: (FQDN fqdn)
+                    => ByteString
+                    -> Dns fqdn
+encode32FQDNEncoded bs = fromNodes nodeList
   where
-    fqdn :: Dns ByteString
-    fqdn = return . B.intercalate (BC.pack ['.']) . splitByNode $ replacePadding $ BSB32.encode bs
+    nodeList :: [Node]
+    nodeList = splitByNode $ replacePadding $ BSB32.encode bs
 
-    splitByNode :: ByteString -> [ByteString]
+    splitByNode :: ByteString -> [Node]
     splitByNode b
-      | (B.length b) < 63 = [b]
-      | otherwise = node:(splitByNode xs)
+      | (B.length b) < 63 = [Node b]
+      | otherwise         = (Node node):(splitByNode xs)
       where
         (node, xs) = B.splitAt 63 b
+
+-- | base 32 decode a FQDN
+-- but do not decode the Request
+decode32FQDNEncoded :: FQDN fqdn
+                    => fqdn
+                    -> Dns ByteString
+decode32FQDNEncoded fqdn =
+    case BSB32.decode $ B.concat nodeList of
+        Left  _   -> errorDns "unable to decode (from base 32) the given FQDN."
+        Right dbs -> return dbs
+  where
+    nodeList :: [ByteString]
+    nodeList = map (resetPadding . toBytes) $ splitToNodes fqdn
 
 replacePadding :: ByteString -> ByteString
 replacePadding bs = BC.map filterPadding bs
@@ -136,17 +116,6 @@ resetPadding bs = BC.map filterPadding bs
     filterPadding '9' = '='
     filterPadding c   = toUpper c
 
--- | base 32 decode a FQDN
--- but do not decode the Request
-decode32FQDNEncoded :: FQDNEncoded
-                    -> Dns ByteString
-decode32FQDNEncoded fqdn =
-    case BSB32.decode $ B.concat $ BC.split '.' $ resetPadding bs of
-        Left  _   -> errorDns "unable to decode (from base 32) the given FQDN."
-        Right dbs -> return dbs
-  where
-    bs :: ByteString
-    bs = toBytes fqdn
 ------------------------------------------------------------------------------
 --                              Packable                                    --
 ------------------------------------------------------------------------------

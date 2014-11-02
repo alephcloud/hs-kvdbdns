@@ -23,6 +23,7 @@ import Test.Tasty
 import Test.Tasty.QuickCheck
 
 import Network.DNS.API.Types
+import Network.DNS.API.FQDN
 import Network.DNS.API.Error
 import Network.DNS.API.Packer
 import Control.Applicative
@@ -42,7 +43,7 @@ instance Encodable TestCommand where
     encode (TestCommand w bs) = putWord8 w <> putByteString bs
     decode = TestCommand <$> BP.anyByte <*> BP.takeAll
 
-data TestRequest = TestRequest TestCommand FQDN
+data TestRequest = TestRequest TestCommand ValidFQDN
   deriving (Show, Eq)
 
 instance Arbitrary TestRequest where
@@ -52,7 +53,7 @@ instance Arbitrary TestRequest where
     in  do
       sizeDom   <- choose (2, 6)
       sizeCmd   <- choose (1, 110)
-      dom <- unsafeToFQDN . encodeFQDN <$> genDom sizeDom
+      dom <- unsafeValidFQDN <$> genDom sizeDom
       req <- TestCommand <$> choose (0, 255)
                          <*> genCommand sizeCmd
       return $ TestRequest req dom
@@ -72,4 +73,4 @@ prop_encode_request (TestRequest req dom) =
      && assertEq d2 req
   where
     encodeOrError d = either error id $ execDns $ (encodeFQDNEncoded d >>= \t -> appendFQDN t dom)
-    decodeOrError d = either error id $ execDns $ decodeFQDNEncoded =<< removeFQDNSuffix (encodeFQDN $ toBytes d) dom
+    decodeOrError d = either error id $ execDns $ decodeFQDNEncoded =<< removeSuffix d dom

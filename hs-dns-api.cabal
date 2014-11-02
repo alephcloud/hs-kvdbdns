@@ -26,6 +26,7 @@ library
                      , Network.DNS.API.Client
                      , Network.DNS.API.Packer
                      , Network.DNS.API.Error
+                     , Network.DNS.API.FQDN
                      , Network.DNS.API.Types
                      , Network.DNS.API.Utils
   build-depends:       base >=4.7 && <4.8

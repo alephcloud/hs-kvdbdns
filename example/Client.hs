@@ -12,6 +12,7 @@ import System.Environment
 import Network.DNS.API.Client
 import Network.DNS.API.Types
 import Network.DNS.API.Utils
+import Network.DNS.API.FQDN
 import Network.DNS.API.Error
 
 import API
@@ -35,7 +36,7 @@ main = do
       let req = Command (BS.pack c) (BS.pack p)
       let domBs = BS.pack d
       let dom = either (\err -> error $ "the given domain address is not a valid FQDN: " ++ err)
-                       (id) $ execDns $ validateFQDN $ encodeFQDN domBs
+                       (id) $ execDns $ validateFQDN domBs
       rs <- makeResolvSeedSafe (Just domBs) (Just $ fromIntegral 8053) Nothing Nothing
       rep <- execDnsIO $ sendQueryTo rs req dom :: IO (Either String Return)
       case rep of
