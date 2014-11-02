@@ -48,7 +48,7 @@ import Network.DNS.API.Packer
 -- | represent a encoded but not validated FQDN
 -- (means that this FQDN is base32 encoded and but may not be a valide FQDN
 newtype FQDNEncoded = FQDNEncoded ByteString
-    deriving (Show, Eq)
+    deriving (Show, Eq, Ord)
 
 instance Byteable FQDNEncoded where
     toBytes (FQDNEncoded bs) = bs
@@ -59,7 +59,7 @@ encodeFQDN bs = FQDNEncoded bs
 
 -- | represent a valide FQDN
 newtype FQDN = FQDN ByteString
-    deriving (Show, Eq)
+    deriving (Show, Eq, Ord)
 
 instance Byteable FQDN where
     toBytes (FQDN bs) = bs
