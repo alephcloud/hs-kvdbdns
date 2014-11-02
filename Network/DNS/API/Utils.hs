@@ -36,10 +36,13 @@ appendFQDN encoded dom =
 -- | remove the given FQDN suffix from the FQDNEncoded
 removeFQDNSuffix :: FQDNEncoded
                  -> FQDN
-                 -> FQDNEncoded
-removeFQDNSuffix encoded dom =
-    encodeFQDN $ B.take (B.length encodedBs - B.length domBs - 1) encodedBs
+                 -> Dns FQDNEncoded
+removeFQDNSuffix encoded dom
+    | domBs == suffix = return $ encodeFQDN prefix
+    | otherwise       = errorDns "suffix does not match"
   where
+    (prefix, suffix) = B.splitAt (B.length encodedBs - B.length domBs) encodedBs
+
     encodedBs :: ByteString
     encodedBs = toBytes encoded
     domBs :: ByteString

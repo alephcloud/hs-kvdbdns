@@ -74,7 +74,7 @@ queryDummy :: API.FQDN
            -> API.FQDNEncoded
            -> DnsIO ByteString
 queryDummy dom conn req = do
-  let eReq = execDns $ decodeFQDNEncoded $ removeFQDNSuffix req dom :: Either String Command
+  let eReq = execDns $ decodeFQDNEncoded =<< removeFQDNSuffix req dom :: Either String Command
   liftIO $ print $ "Connection: " ++ (show $ getSockAddr conn) ++ " opened: " ++ (show $ getCreationDate conn)
   pureDns $ case eReq of
     Left err -> errorDns err

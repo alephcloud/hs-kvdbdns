@@ -72,4 +72,4 @@ prop_encode_request (TestRequest req dom) =
      && assertEq d2 req
   where
     encodeOrError d = either error id $ execDns $ (encodeFQDNEncoded d >>= \t -> appendFQDN t dom)
-    decodeOrError d = either error id $ execDns $ decodeFQDNEncoded $ removeFQDNSuffix (encodeFQDN $ toBytes d) dom
+    decodeOrError d = either error id $ execDns $ decodeFQDNEncoded =<< removeFQDNSuffix (encodeFQDN $ toBytes d) dom
