@@ -29,7 +29,13 @@ library
                      , Network.DNS.API.FQDN
                      , Network.DNS.API.Types
                      , Network.DNS.API.Utils
+
+                     , Network.DNS.API.Bind
+
+  other-modules:       Data.String.Parse
+
   build-depends:       base >=4.7 && <4.8
+                     , containers
                      , network
                      , dns  >= 1.4.4
                      , sandi

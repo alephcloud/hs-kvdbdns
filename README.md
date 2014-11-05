@@ -25,6 +25,13 @@ In the examples directory:
 
     cabal configure -f executable
 
+Test the example:
+
+    ./dist/build/Server/Server --bind example/bind.conf
+
+
+    ./dist/build/Client/Client localtest.me. db haskell
+
 # The API
 
 ## Request

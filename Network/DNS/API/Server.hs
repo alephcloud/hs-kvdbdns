@@ -30,6 +30,7 @@ import Data.Monoid (mconcat)
 
 import Network.DNS hiding (encode, decode, lookup, responseA, responseAAAA)
 import qualified Network.DNS as DNS
+import Network.DNS.API.Bind
 import Network.DNS.API.Error
 import Network.DNS.API.FQDN
 import Network.DNS.API.Connection (Connection)
@@ -46,33 +47,18 @@ import Control.Concurrent.STM.TChan
 
 -- | Server configuration
 data ServerConf context = ServerConf
-  { queryA     :: Connection context -> ValidFQDN -> DnsIO [IPv4]
-  , queryAAAA  :: Connection context -> ValidFQDN -> DnsIO [IPv6]
-  , queryTXT   :: Connection context -> ValidFQDN -> DnsIO ByteString
-  , queryNS    :: Connection context -> ValidFQDN -> DnsIO [ValidFQDN]
-  , queryCNAME :: Connection context -> ValidFQDN -> DnsIO [ValidFQDN]
-  , queryDNAME :: Connection context -> ValidFQDN -> DnsIO [ValidFQDN]
-  , queryPTR   :: Connection context -> ValidFQDN -> DnsIO [ValidFQDN]
-  , inFail :: DNSFormat -> IO (Either String DNSFormat)
+  { bindings :: DNSBindings
+  , inFail   :: DNSFormat -> IO (Either String DNSFormat)
   }
 
 -- | Create a default Server Conf with every queries configured to
 -- fail properly
-createServerConf :: ServerConf context
-createServerConf =
-   ServerConf
-      { queryA     = recordNotImplemented
-      , queryAAAA  = recordNotImplemented
-      , queryTXT   = recordNotImplemented
-      , queryNS    = recordNotImplemented
-      , queryCNAME = recordNotImplemented
-      , queryDNAME = recordNotImplemented
-      , queryPTR   = recordNotImplemented
-      , inFail     = return . Right . failError
-      }
-  where
-    recordNotImplemented :: Connection context -> ValidFQDN -> DnsIO a
-    recordNotImplemented _ _ = pureDns $ errorDns "Record not implemented"
+createServerConf :: DNSBindings -> ServerConf context
+createServerConf b =
+    ServerConf
+        { bindings = b
+        , inFail   = return . Right . failError
+        }
 
 failError :: DNSFormat -> DNSFormat
 failError req =
@@ -97,13 +83,13 @@ handleRequest conf conn req = do
         Left err   -> return $ Left err
         Right fqdn -> do
             r <- case qtype q of
-                    DNS.A     -> handleRequestA              $ queryA     conf conn fqdn
-                    DNS.AAAA  -> handleRequestAAAA           $ queryAAAA  conf conn fqdn
-                    DNS.TXT   -> handleRequestTXT            $ queryTXT   conf conn fqdn
-                    DNS.NS    -> handleRequestFQDN DNS.NS    $ queryNS    conf conn fqdn
-                    DNS.CNAME -> handleRequestFQDN DNS.CNAME $ queryCNAME conf conn fqdn
-                    DNS.DNAME -> handleRequestFQDN DNS.DNAME $ queryDNAME conf conn fqdn
-                    DNS.PTR   -> handleRequestFQDN DNS.PTR   $ queryPTR   conf conn fqdn
+                    DNS.A     -> handleRequestA              (bindingsA     $ bindings conf) fqdn
+                    DNS.AAAA  -> handleRequestAAAA           (bindingsAAAA  $ bindings conf) fqdn
+                    DNS.TXT   -> handleRequestTXT            (bindingsTXT   $ bindings conf) fqdn
+                    DNS.NS    -> handleRequestFQDN DNS.NS    (bindingsPTR   $ bindings conf) fqdn
+                    DNS.CNAME -> handleRequestFQDN DNS.CNAME (bindingsCNAME $ bindings conf) fqdn
+                    DNS.DNAME -> handleRequestFQDN DNS.DNAME (bindingsDNAME $ bindings conf) fqdn
+                    DNS.PTR   -> handleRequestFQDN DNS.PTR   (bindingsPTR   $ bindings conf) fqdn
                     _         -> either error id <$> inFail conf req
             return $ Right $ mconcat $ SL.toChunks $ DNS.encode r
   where
@@ -113,34 +99,45 @@ handleRequest conf conn req = do
     ident :: Int
     ident = identifier . header $ req
 
-    handleRequestFQDN :: DNS.TYPE -> DnsIO [ValidFQDN] -> IO DNSFormat
-    handleRequestFQDN t action = do
-        mres <- execDnsIO action
-        return $ case mres of
-            Left  err -> failError req
-            Right dn  -> responseFQDN q ident t dn
+    handleRequestFQDN :: DNS.TYPE -> Bindings [ValidFQDN] -> ValidFQDN -> IO DNSFormat
+    handleRequestFQDN t b fqdn =
+        case execDns $ findBinding fqdn b of
+            Left err              -> return $ failError req
+            Right (action, param) -> do
+                mres <- execDnsIO $ bindingFunction action conn param
+                return $ case mres of
+                    Left  err -> failError req
+                    Right dn  -> responseFQDN q ident t dn
 
-    handleRequestA :: DnsIO [IPv4] -> IO DNSFormat
-    handleRequestA action = do
-        mres <- execDnsIO action
-        return $ case mres of
-            Left  err -> failError req
-            Right l   -> responseA q ident l
+    handleRequestA :: BindingsA -> ValidFQDN -> IO DNSFormat
+    handleRequestA b fqdn = do
+        case execDns $ findBinding fqdn b of
+            Left err              -> return $ failError req
+            Right (action, param) -> do
+                mres <- execDnsIO $ bindingFunction action conn param
+                return $ case mres of
+                    Left  err -> failError req
+                    Right l   -> responseA q ident l
 
+    handleRequestAAAA :: BindingsAAAA -> ValidFQDN -> IO DNSFormat
+    handleRequestAAAA b fqdn = do
+        case execDns $ findBinding fqdn b of
+            Left err              -> return $ failError req
+            Right (action, param) -> do
+                mres <- execDnsIO $ bindingFunction action conn param
+                return $ case mres of
+                    Left  err -> failError req
+                    Right l   -> responseAAAA q ident l
 
-    handleRequestAAAA :: DnsIO [IPv6] -> IO DNSFormat
-    handleRequestAAAA action = do
-        mres <- execDnsIO action
-        return $ case mres of
-            Left  err -> failError req
-            Right l   -> responseAAAA q ident l
-
-    handleRequestTXT :: DnsIO ByteString -> IO DNSFormat
-    handleRequestTXT action = do
-        mres <- execDnsIO action
-        return $ case mres of
-            Left  err -> failError req
-            Right bs  -> responseTXT q ident (splitTxt bs)
+    handleRequestTXT :: BindingsTXT -> ValidFQDN -> IO DNSFormat
+    handleRequestTXT b fqdn = do
+        case execDns $ findBinding fqdn b of
+            Left err              -> return $ failError req
+            Right (action, param) -> do
+                mres <- execDnsIO $ bindingFunction action conn param
+                return $ case mres of
+                    Left  err -> failError req
+                    Right l   -> responseTXT q ident l
 
 responseFQDN :: Question -> Int -> DNS.TYPE -> [ValidFQDN] -> DNSFormat
 responseFQDN q ident t l =

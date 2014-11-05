@@ -24,6 +24,7 @@ import Network.DNS.API.Types as API
 import Network.DNS.API.Utils as API
 import Network.DNS.API.FQDN as API
 import Network.DNS.API.Error
+import Network.DNS.API.Bind
 import API
 
 import System.Environment
@@ -35,18 +36,30 @@ import Control.Monad.Identity
 
 main :: IO ()
 main = do
-  args <- getArgs
-  name <- getProgName
-  case args of
-    [d] -> do let d' = execDns $ validateFQDN $ BS.pack d
-              let dom = either (\err -> error $ "the given domain address is not a valid FQDN: " ++ err)
-                               (id) d'
-              sl <- getDefaultConnections (Just "8053") (Seconds 3) Nothing >>= return.catMaybes
-              defaultServer (serverConf dom) sl
-    _     -> putStrLn $ "usage: " ++ name ++ " <Database FQDN>"
-  where
-    serverConf :: ValidFQDN -> ServerConf Int
-    serverConf dom = createServerConf { queryTXT = queryDummy dom }
+    args <- getArgs
+    name <- getProgName
+    case args of
+        ["--bind",f] -> do
+            sl <- catMaybes <$> getDefaultConnections (Just "8053") (Seconds 3) Nothing
+            list <- either error id <$> parseBindFile f
+            let (list', bindings) = insertDNSBindings ExampleBinding
+                                  $ insertDNSBindings DefaultBinding
+                                  $ (list, emptyDNSBindings)
+            when (not $ null list') $ error ("the given bindings haren't assigned: " ++ show list')
+            defaultServer (createServerConf bindings) sl
+        _ -> putStrLn $ "usage: " ++ name ++ " --bind <filepath>"
+
+data ExampleBinding = ExampleBinding
+instance Binding ExampleBinding where
+    getName _ = "example"
+
+    getA     = notImplementedBinding
+    getAAAA  = notImplementedBinding
+    getCNAME = notImplementedBinding
+    getDNAME = notImplementedBinding
+    getPTR   = notImplementedBinding
+    getNS    = notImplementedBinding
+    getTXT   _ _ = return $ BindingFunction queryDummy
 
 ------------------------------------------------------------------------------
 --                          API: queries handling                          --
@@ -70,16 +83,17 @@ exampleDB =
 -- * db  : return the DB
 --
 -- This actual example just ignore the connection context and information
-queryDummy :: ValidFQDN
-           -> Connection Int
+queryDummy :: Connection a
            -> ValidFQDN
-           -> DnsIO ByteString
-queryDummy dom conn req = do
-  let eReq = execDns $ decodeFQDNEncoded =<< removeSuffix req dom :: Either String Command
-  liftIO $ print $ "Connection: " ++ (show $ getSockAddr conn) ++ " opened: " ++ (show $ getCreationDate conn)
-  pureDns $ case eReq of
-    Left err -> errorDns err
-    Right r  -> treatRequest r >>= packData
+           -> DnsIO [ByteString]
+queryDummy conn req = do
+    let eReq = execDns $ decodeFQDNEncoded req :: Either String Command
+    liftIO $ print $ "Connection: " ++ (show $ getSockAddr conn) ++ " opened: " ++ (show $ getCreationDate conn)
+    pureDns $ case eReq of
+        Left err -> errorDns err
+        Right r  -> do
+            l <- treatRequest r >>= packData
+            return [l]
   where
     treatRequest :: Command -> Dns Return
     treatRequest r =
