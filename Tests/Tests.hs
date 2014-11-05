@@ -17,11 +17,11 @@ main :: IO ()
 main =
   defaultMain tests
 
-tests = testGroup "API over DNS"
+tests = testGroup "properties"
     [ tests_dns_request
     ]
   where
-    tests_dns_request = testGroup "DNS Request"
-      [ testProperty "Encode Request"       prop_encode_request
-      , testProperty "Encode Response"      prop_encode_response
+    tests_dns_request = testGroup "encode/decode"
+      [ testProperty "Request"       prop_encode_request
+      , testProperty "Response"      prop_encode_response
       ]
