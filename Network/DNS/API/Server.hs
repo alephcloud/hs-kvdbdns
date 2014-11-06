@@ -47,8 +47,8 @@ import Control.Concurrent.STM.TChan
 
 -- | Server configuration
 data ServerConf context = ServerConf
-  { bindings :: DNSBindings
-  , inFail   :: DNSFormat -> IO (Either String DNSFormat)
+  { getBindings :: DNSBindings
+  , inFail      :: DNSFormat -> IO (Either String DNSFormat)
   }
 
 -- | Create a default Server Conf with every queries configured to
@@ -56,7 +56,7 @@ data ServerConf context = ServerConf
 createServerConf :: DNSBindings -> ServerConf context
 createServerConf b =
     ServerConf
-        { bindings = b
+        { getBindings = b
         , inFail   = return . Right . failError
         }
 
@@ -83,13 +83,13 @@ handleRequest conf conn req = do
         Left err   -> return $ Left err
         Right fqdn -> do
             r <- case qtype q of
-                    DNS.A     -> handleRequestA              (bindingsA     $ bindings conf) fqdn
-                    DNS.AAAA  -> handleRequestAAAA           (bindingsAAAA  $ bindings conf) fqdn
-                    DNS.TXT   -> handleRequestTXT            (bindingsTXT   $ bindings conf) fqdn
-                    DNS.NS    -> handleRequestFQDN DNS.NS    (bindingsPTR   $ bindings conf) fqdn
-                    DNS.CNAME -> handleRequestFQDN DNS.CNAME (bindingsCNAME $ bindings conf) fqdn
-                    DNS.DNAME -> handleRequestFQDN DNS.DNAME (bindingsDNAME $ bindings conf) fqdn
-                    DNS.PTR   -> handleRequestFQDN DNS.PTR   (bindingsPTR   $ bindings conf) fqdn
+                    DNS.A     -> handleRequestA              (bindingsA     $ getBindings conf) fqdn
+                    DNS.AAAA  -> handleRequestAAAA           (bindingsAAAA  $ getBindings conf) fqdn
+                    DNS.TXT   -> handleRequestTXT            (bindingsTXT   $ getBindings conf) fqdn
+                    DNS.NS    -> handleRequestFQDN DNS.NS    (bindingsPTR   $ getBindings conf) fqdn
+                    DNS.CNAME -> handleRequestFQDN DNS.CNAME (bindingsCNAME $ getBindings conf) fqdn
+                    DNS.DNAME -> handleRequestFQDN DNS.DNAME (bindingsDNAME $ getBindings conf) fqdn
+                    DNS.PTR   -> handleRequestFQDN DNS.PTR   (bindingsPTR   $ getBindings conf) fqdn
                     _         -> either error id <$> inFail conf req
             return $ Right $ mconcat $ SL.toChunks $ DNS.encode r
   where
