@@ -9,6 +9,7 @@
 --
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 import Data.Default (def)
 import Data.Char (ord)
 import Data.ByteString (ByteString)
@@ -42,9 +43,13 @@ main = do
         ["--bind",f] -> do
             sl <- catMaybes <$> getDefaultConnections (Just "8053") (Seconds 3) Nothing
             list <- either error id <$> parseBindFile f
-            let (list', bindings) = insertDNSBindings ExampleBinding
-                                  $ insertDNSBindings DefaultBinding
-                                  $ (list, emptyDNSBindings)
+            -- Force the resolution of the Chunks in order to get the error message now
+            --
+            -- If an error occured during parsing the file, we want to know what was this
+            -- error before starting the server
+            let (list', !bindings) = insertDNSBindings ExampleBinding
+                                   $ insertDNSBindings DefaultBinding
+                                   $ (list, emptyDNSBindings)
             when (not $ null list') $ error ("the given bindings haren't assigned: " ++ show list')
             defaultServer (createServerConf bindings) sl
         _ -> putStrLn $ "usage: " ++ name ++ " --bind <filepath>"

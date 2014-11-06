@@ -31,6 +31,9 @@ library
                      , Network.DNS.API.Utils
 
                      , Network.DNS.API.Bind
+                     , Network.DNS.API.Bind.Class
+                     , Network.DNS.API.Bind.Parser
+                     , Network.DNS.API.Bind.Types
 
   other-modules:       Data.String.Parse
 
