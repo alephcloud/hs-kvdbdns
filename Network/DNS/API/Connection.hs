@@ -36,13 +36,13 @@ data Connection a = Connection
   , setKeepOpen :: Bool -> IO ()    -- ^ set the current session to keep is open (or not)
   , getContext  :: MVar a           -- ^ a connection context
   , getSockAddr :: SockAddr         -- ^ the connection socket address
-  , getCreationDate :: Elapsed      -- ^ the UNIX timestamp creation date
-  , getLastUsedDate :: IO Elapsed   -- ^ the UNIX timestamp last use date
+  , getCreationDate :: ElapsedP     -- ^ the UNIX timestamp creation date
+  , getLastUsedDate :: IO ElapsedP  -- ^ the UNIX timestamp last use date
   }
 
-updateTimeStamp :: MVar Elapsed -> IO ()
+updateTimeStamp :: MVar ElapsedP -> IO ()
 updateTimeStamp mvar = do
-  time <- timeCurrent
+  time <- timeCurrentP
   modifyMVar_ mvar (\_ -> return time)
 
 -- | Create a new UDP Connection server with the given ttl and context.
@@ -58,7 +58,7 @@ newConnectionUDPServer :: Socket  -- ^ the socket to wrap up in a Connection
                        -> IO (Connection a)
 newConnectionUDPServer sock ttl mc = do
   mvar <- maybe (newEmptyMVar) (newMVar) mc
-  date <- timeCurrent
+  date <- timeCurrentP
   lastUse <- newMVar date
   return $ Connection
     { listen  = \_ -> return ()
@@ -82,7 +82,7 @@ acceptUDPClient sock (Seconds s) mc = do
   let ttl = (fromIntegral s) * 1000 * 1000
   mvar <- maybe (newEmptyMVar) (newMVar) mc
   (bs, addr) <- Socket.recvFrom sock 512
-  date <- timeCurrent
+  date <- timeCurrentP
   lastUse <- newMVar date
   return $ Connection
     { listen  = error "Network.DNS.API.Connection.UDP.Client: should not listen"
@@ -105,7 +105,7 @@ newConnectionTCPServer :: Socket  -- ^ the socket to wrap up in a Connection
                        -> IO (Connection a)
 newConnectionTCPServer sock ttl mc = do
   mvar <- maybe (newEmptyMVar) (newMVar) mc
-  date <- timeCurrent
+  date <- timeCurrentP
   lastUse <- newMVar date
   return $ Connection
     { listen  = \qSize -> Socket.listen sock qSize >> updateTimeStamp lastUse
@@ -131,7 +131,7 @@ acceptTCPClient sock (Seconds s) mc = do
   -- by default we don't want to keep opened connections
   keepOpen <- newMVar False
   (sockClient, addr) <- Socket.accept sock
-  date <- timeCurrent
+  date <- timeCurrentP
   lastUse <- newMVar date
   return $ Connection
     { listen  = error "Network.DNS.API.Connection.TCP.Client: should not listen"
