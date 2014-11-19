@@ -15,6 +15,8 @@ module Network.DNS.API.Server
     -- * defaultServer
   , getDefaultConnections
   , defaultServer
+    -- * helper
+  , failError
   ) where
 
 import Control.Monad
@@ -60,6 +62,7 @@ createServerConf b =
         , inFail   = return . Right . failError
         }
 
+-- | Create the right DNSFormat error to answer to a query which failed
 failError :: DNSFormat -> DNSFormat
 failError req =
   let hd = header req
