@@ -5,7 +5,7 @@ name:                hs-dns-api
 version:             0.1.0.1
 synopsis:            A simple API to send command over DNS protocol
 -- description:
-license:             BSD3
+license:             Apache-2
 license-file:        LICENSE
 author:              Nicolas DI PRIMA
 maintainer:          ndiprima@alephcloud.com
