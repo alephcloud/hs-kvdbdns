@@ -7,6 +7,7 @@
 -- Stability   : experimental
 -- Portability : unknown
 --
+module main where
 import Test.Tasty
 import Test.Tasty.QuickCheck
 
