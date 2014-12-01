@@ -38,6 +38,7 @@ import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as SL (toChunks, fromChunks)
 import Data.Hourglass.Types
 import Data.IP
+import Data.Maybe (catMaybes)
 import Data.Monoid (mconcat)
 
 import Network.DNS hiding (encode, decode, lookup, responseA, responseAAAA)
@@ -115,41 +116,41 @@ handleRequest conf conn req = do
     handleRequestFQDN :: DNS.TYPE -> Bindings [ValidFQDN] -> ValidFQDN -> IO DNSFormat
     handleRequestFQDN t b fqdn =
         case execDns $ findBinding fqdn b of
-            Left err              -> return $ failError req
+            Left _err             -> return $ failError req
             Right (action, param) -> do
                 mres <- execDnsIO $ bindingFunction action conn param
                 return $ case mres of
-                    Left  err -> failError req
+                    Left  _err-> failError req
                     Right dn  -> responseFQDN q ident t dn
 
     handleRequestA :: BindingsA -> ValidFQDN -> IO DNSFormat
     handleRequestA b fqdn = do
         case execDns $ findBinding fqdn b of
-            Left err              -> return $ failError req
+            Left _err             -> return $ failError req
             Right (action, param) -> do
                 mres <- execDnsIO $ bindingFunction action conn param
                 return $ case mres of
-                    Left  err -> failError req
+                    Left  _err-> failError req
                     Right l   -> responseA q ident l
 
     handleRequestAAAA :: BindingsAAAA -> ValidFQDN -> IO DNSFormat
     handleRequestAAAA b fqdn = do
         case execDns $ findBinding fqdn b of
-            Left err              -> return $ failError req
+            Left _err             -> return $ failError req
             Right (action, param) -> do
                 mres <- execDnsIO $ bindingFunction action conn param
                 return $ case mres of
-                    Left  err -> failError req
+                    Left  _err-> failError req
                     Right l   -> responseAAAA q ident l
 
     handleRequestTXT :: BindingsTXT -> ValidFQDN -> IO DNSFormat
     handleRequestTXT b fqdn = do
         case execDns $ findBinding fqdn b of
-            Left err              -> return $ failError req
+            Left _err             -> return $ failError req
             Right (action, param) -> do
                 mres <- execDnsIO $ bindingFunction action conn param
                 return $ case mres of
-                    Left  err -> failError req
+                    Left  _err-> failError req
                     Right l   -> responseTXT q ident l
 
 responseFQDN :: Question -> Int -> DNS.TYPE -> [ValidFQDN] -> DNSFormat
@@ -203,13 +204,6 @@ responseTXT q ident l =
         , question = [q]
         , answer = al
         }
-
-splitTxt :: ByteString -> [ByteString]
-splitTxt bs
-  | B.length bs < 255 = [bs]
-  | otherwise = node:(splitTxt xs)
-  where
-    (node, xs) = B.splitAt 255 bs
 
 -- | imported from dns:Network/DNS/Internal.hs
 --
@@ -318,11 +312,10 @@ defaultListener chan conn = do
 -- | Simple helper to get the default DNS Sockets
 --
 -- all sockets TCP/UDP + IPv4 + port(53)
-getDefaultConnections :: (Monad m, Applicative m)
-                      => Maybe String
+getDefaultConnections :: Maybe String
                       -> Seconds -- ^ for timeout
                       -> Maybe a -- ^ the initial context value to use to the created connections
-                      -> IO [m (Connection a)]
+                      -> IO [Connection a]
 getDefaultConnections mport timeout mcontext = do
   let (mflags, service) = maybe (([], Just "domain")) (\port -> ([AI_NUMERICSERV], Just port)) mport
   addrinfos <- getAddrInfo
@@ -334,18 +327,18 @@ getDefaultConnections mport timeout mcontext = do
                    )
                    (Nothing)
                    service
-  mapM (addrInfoToSocket timeout mcontext) addrinfos
+  catMaybes <$> mapM (addrInfoToSocket timeout mcontext) addrinfos
 
-addrInfoToSocket :: (Monad m, Applicative m) => Seconds -> Maybe a -> AddrInfo -> IO (m (Connection a))
+addrInfoToSocket :: Seconds -> Maybe a -> AddrInfo -> IO (Maybe (Connection a))
 addrInfoToSocket timeout mcontext addrinfo
-  | (addrSocketType addrinfo) `notElem` [Datagram, Stream] = return $ fail $ "socket type not supported: " ++ (show addrinfo)
+  | (addrSocketType addrinfo) `notElem` [Datagram, Stream] = return Nothing -- $ fail $ "socket type not supported: " ++ (show addrinfo)
   | otherwise = do
       sock <- socket (addrFamily addrinfo) (addrSocketType addrinfo) defaultProtocol
       bindSocket sock (addrAddress addrinfo)
       case addrSocketType addrinfo of
-           Datagram -> API.newConnectionUDPServer sock timeout mcontext >>= return.pure
-           Stream   -> API.newConnectionTCPServer sock timeout mcontext >>= return.pure
-           _        -> return $ fail $ "Socket Type not handle: " ++ (show addrinfo)
+           Datagram -> Just <$> API.newConnectionUDPServer sock timeout mcontext
+           Stream   -> Just <$> API.newConnectionTCPServer sock timeout mcontext
+           _        -> return $ Nothing -- "Socket Type not handle: " ++ (show addrinfo)
 
 -- | launch the default server
 defaultServer :: ServerConf a

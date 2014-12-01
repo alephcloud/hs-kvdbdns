@@ -41,7 +41,7 @@ main = do
     name <- getProgName
     case args of
         ["--bind",f] -> do
-            sl <- catMaybes <$> getDefaultConnections (Just "8053") (Seconds 3) Nothing
+            sl <- getDefaultConnections (Just "8053") (Seconds 3) Nothing
             list <- either error id <$> parseBindFile f
             -- Force the resolution of the Chunks in order to get the error message now
             --
