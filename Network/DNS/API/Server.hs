@@ -66,7 +66,8 @@ data ServerConf context = ServerConf
 
 -- | Create a default Server Conf with every queries configured to
 -- fail properly
-createServerConf :: DNSBindings -> ServerConf context
+createServerConf :: DNSBindings -- ^ the collection of bindings
+                 -> ServerConf context
 createServerConf b =
     ServerConf
         { getBindings = b
@@ -74,7 +75,8 @@ createServerConf b =
         }
 
 -- | Create the right DNSFormat error to answer to a query which failed
-failError :: DNSFormat -> DNSFormat
+failError :: DNSFormat -- ^ the original DNS Format
+          -> DNSFormat
 failError req =
     let hd = header req
         flg = flags hd
@@ -314,9 +316,9 @@ defaultListener chan conn = do
 --
 -- all sockets TCP/UDP + IPv4 + port(53)
 getDefaultConnections :: Maybe String
-                      -> Seconds -- ^ for timeout
-                      -> Maybe a -- ^ the initial context value to use to the created connections
-                      -> IO [Connection a]
+                      -> Seconds       -- ^ The timeout for every connections
+                      -> Maybe context -- ^ A possible context every Connection can have (That could be a MVar or something else)
+                      -> IO [Connection context]
 getDefaultConnections mport timeout mcontext = do
     let (mflags, service) = maybe (([], Just "domain")) (\port -> ([AI_NUMERICSERV], Just port)) mport
     addrinfos <- getAddrInfo
@@ -330,7 +332,10 @@ getDefaultConnections mport timeout mcontext = do
                    service
     catMaybes <$> mapM (addrInfoToSocket timeout mcontext) addrinfos
 
-addrInfoToSocket :: Seconds -> Maybe a -> AddrInfo -> IO (Maybe (Connection a))
+addrInfoToSocket :: Seconds       -- ^ The timeout for every connections
+                 -> Maybe context -- ^ A possible context every Connection can have (That could be a MVar or something else)
+                 -> AddrInfo      -- ^ The address info
+                 -> IO (Maybe (Connection context))
 addrInfoToSocket timeout mcontext addrinfo
     | (addrSocketType addrinfo) `notElem` [Datagram, Stream] = return Nothing -- $ fail $ "socket type not supported: " ++ (show addrinfo)
     | otherwise = do
