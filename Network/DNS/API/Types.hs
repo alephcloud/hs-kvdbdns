@@ -46,8 +46,10 @@ import Network.DNS.API.Packer
 --                                   Helpers                                --
 ------------------------------------------------------------------------------
 
--- help to execute a parsing of a bytestring
-dnsParse :: BP.Parser a -> ByteString -> Dns a
+-- | help to execute a parsing of a bytestring
+dnsParse :: BP.Parser a -- ^ the parser
+         -> ByteString  -- ^ the bytestring to parse
+         -> Dns a
 dnsParse parser bs = do
     l <- BP.parseFeed (return B.empty) parser bs
     case l of
@@ -66,63 +68,64 @@ dnsParse parser bs = do
 -- encode the URL into a format that will be a valide format for every DNS
 -- servers our request may go through.
 class Encodable encodable where
+    -- | return a Packer for the given encodable
     encode :: encodable -> DnsPacker
+    -- | the Parser
     decode :: BP.Parser encodable
 
--- | decode a FQDNEncoded
+-- | decode a FQDN
+--
+-- Remove the dots, unbase32 and decode the bytestring
 decodeFQDNEncoded :: (Encodable encodable, FQDN fqdn)
-                  => fqdn
+                  => fqdn          -- ^ the FQDN which contains the Encodable data
                   -> Dns encodable
-decodeFQDNEncoded fqdn = decode32FQDNEncoded fqdn >>= dnsParse decode
+decodeFQDNEncoded fqdn = decode32FQDNEncoded >>= dnsParse decode
+  where
+    decode32FQDNEncoded :: Dns ByteString
+    decode32FQDNEncoded =
+        case BSB32.decode $ B.concat nodeList of
+            Left  _   -> errorDns "unable to decode (from base 32) the given FQDN."
+            Right dbs -> return dbs
+      where
+        nodeList :: [ByteString]
+        nodeList = map (resetPadding . toBytes) $ splitToNodes fqdn
 
--- | encode
+    resetPadding :: ByteString -> ByteString
+    resetPadding bs = BC.map filterPadding bs
+      where
+        filterPadding :: Char -> Char
+        filterPadding '9' = '='
+        filterPadding c   = toUpper c
+
+-- | encode into a FQDN
+--
+-- Run the Packer, base32 and intercalate a dot every 63 bytes
 encodeFQDNEncoded :: (Encodable encodable, FQDN fqdn)
-                  => encodable
+                  => encodable -- ^ the data to encode into FQDN
                   -> Dns fqdn
 encodeFQDNEncoded d = runDnsPacker (encode d) >>= encode32FQDNEncoded
-
--- | Encode into a FQDN compatible fornat
-encode32FQDNEncoded :: (FQDN fqdn)
-                    => ByteString
-                    -> Dns fqdn
-encode32FQDNEncoded bs = fromNodes nodeList
   where
-    nodeList :: [Node]
-    nodeList = splitByNode $ replacePadding $ BSB32.encode bs
-
-    splitByNode :: ByteString -> [Node]
-    splitByNode b
-      | (B.length b) < 63 = [Node b]
-      | otherwise         = (Node node):(splitByNode xs)
+    encode32FQDNEncoded :: (FQDN fqdn)
+                        => ByteString
+                        -> Dns fqdn
+    encode32FQDNEncoded bs = fromNodes nodeList
       where
-        (node, xs) = B.splitAt 63 b
+        nodeList :: [Node]
+        nodeList = splitByNode $ replacePadding $ BSB32.encode bs
 
--- | base 32 decode a FQDN
--- but do not decode the Request
-decode32FQDNEncoded :: FQDN fqdn
-                    => fqdn
-                    -> Dns ByteString
-decode32FQDNEncoded fqdn =
-    case BSB32.decode $ B.concat nodeList of
-        Left  _   -> errorDns "unable to decode (from base 32) the given FQDN."
-        Right dbs -> return dbs
-  where
-    nodeList :: [ByteString]
-    nodeList = map (resetPadding . toBytes) $ splitToNodes fqdn
+        splitByNode :: ByteString -> [Node]
+        splitByNode b
+            | (B.length b) < 63 = [Node b]
+            | otherwise         = (Node node):(splitByNode xs)
+          where
+            (node, xs) = B.splitAt 63 b
 
-replacePadding :: ByteString -> ByteString
-replacePadding bs = BC.map filterPadding bs
-  where
-    filterPadding :: Char -> Char
-    filterPadding '=' = '9'
-    filterPadding c   = toLower c
-
-resetPadding :: ByteString -> ByteString
-resetPadding bs = BC.map filterPadding bs
-  where
-    filterPadding :: Char -> Char
-    filterPadding '9' = '='
-    filterPadding c   = toUpper c
+    replacePadding :: ByteString -> ByteString
+    replacePadding bs = BC.map filterPadding bs
+      where
+        filterPadding :: Char -> Char
+        filterPadding '=' = '9'
+        filterPadding c   = toLower c
 
 ------------------------------------------------------------------------------
 --                              Packable                                    --
