@@ -93,12 +93,9 @@ decodeFQDNEncoded fqdn = decode32FQDNEncoded >>= unpackData
   where
     decode32FQDNEncoded :: Dns ByteString
     decode32FQDNEncoded =
-        case BSB32.decode $ B.concat nodeList of
+        case BSB32.decode $ resetPadding $ B.concat $ map toBytes $ toNodes fqdn of
             Left  _   -> errorDns "unable to decode (from base 32) the given FQDN."
             Right dbs -> return dbs
-      where
-        nodeList :: [ByteString]
-        nodeList = map (resetPadding . toBytes) $ splitToNodes fqdn
 
     resetPadding :: ByteString -> ByteString
     resetPadding bs = BC.map filterPadding bs

@@ -212,7 +212,7 @@ findNodeBindings = Map.lookup
 -- | Return the action associated to the given FQDN
 findBinding :: FQDN fqdn => fqdn -> Bindings a -> Dns (BindingFunction a, fqdn)
 findBinding fqdn bindings =
-    case recursiveFind (reverse $ splitToNodes fqdn) bindings of
+    case recursiveFind (reverse $ toNodes fqdn) bindings of
         Nothing      -> errorDns "Not found"
         Just (a, ln) -> do
             arg <- fromNodes $ reverse ln
@@ -238,7 +238,7 @@ insertBinding :: FQDN fqdn
               -> BindingFunction a
               -> Bindings a
               -> Bindings a
-insertBinding fqdn action bindings = insertNodes action (reverse $ splitToNodes fqdn) bindings
+insertBinding fqdn action bindings = insertNodes action (reverse $ toNodes fqdn) bindings
   where
     insertNodes :: BindingFunction a -> [Node] -> Bindings a -> Bindings a
     insertNodes _ []     _ = error "the FQDN might be null and it is non-sense to add a binding for nothing"
