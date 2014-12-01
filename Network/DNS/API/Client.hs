@@ -122,7 +122,8 @@ sendQueryToType :: Packable request
                 -> ValidFQDN
                 -> DnsIO [DNS.RDATA]
 sendQueryToType t seed req dom = do
-    fqdn <- pureDns $ encodeFQDNEncoded req >>= \e -> appendFQDN e dom :: Dns ValidFQDN
+    encoded <- pureDns $ encodeFQDNEncoded req :: DnsIO UnsafeFQDN
+    fqdn <- pureDns $ appendFQDN encoded dom :: DnsIO ValidFQDN
     sendQueryRawToType t seed fqdn
 
 -- | Send a query with the default DNS Resolver

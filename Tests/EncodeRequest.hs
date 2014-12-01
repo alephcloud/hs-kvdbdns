@@ -74,12 +74,14 @@ assertEq x y
 
 prop_encode_request :: TestRequest -> Bool
 prop_encode_request (TestRequest req dom) =
-    let e1 = encodeOrError req
-        d1 = decodeOrError e1
-        e2 = encodeOrError d1
-        d2 = decodeOrError e2
+    let e1 = encodeOrError req :: ValidFQDN
+        d1 = decodeOrError e1  :: TestCommand
+        e2 = encodeOrError d1  :: ValidFQDN
+        d2 = decodeOrError e2  :: TestCommand
     in  assertEq d1 d2
      && assertEq d2 req
   where
-    encodeOrError d = either error id $ execDns $ (encodeFQDNEncoded d >>= \t -> appendFQDN t dom)
-    decodeOrError d = either error id $ execDns $ decodeFQDNEncoded =<< removeSuffix d dom
+    decodeOrError d = either error id $ execDns $ decodeFQDNEncoded =<< (removeFQDNSuffix d dom :: Dns ByteString)
+    encodeOrError d =
+        let encoded = either error id $ execDns $ encodeFQDNEncoded d :: UnsafeFQDN
+        in  either error id $ execDns $ appendFQDN encoded dom

@@ -18,9 +18,15 @@
 --
 {-# LANGUAGE OverloadedStrings #-}
 module Network.DNS.API.FQDN
-    ( Node(..)
+    ( -- * Nodes/FQDN
+      Node(..)
     , FQDN(..)
+      -- ** Functions
+    , appendRootNode
+    , getRootNode
+    , appendFQDN
     , removeFQDNSuffix
+    , removeEmptyNodes
       -- * Unsafe FQDN
     , UnsafeFQDN(..)
       -- * Valid FQDN
@@ -32,7 +38,6 @@ module Network.DNS.API.FQDN
 import           Data.Byteable
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
-import           Data.Maybe (isJust)
 import           Network.DNS.API.Error
 
 -------------------------------------------------------------------------------
@@ -52,27 +57,7 @@ splitToNodes_ :: Byteable a => a -> [Node]
 splitToNodes_ = map Node . B.split '.' . toBytes
 
 concatFromNodes_ :: [Node] -> ByteString
-concatFromNodes_ l = B.intercalate "." $ map toBytes l
-
-popRootNode_ :: Byteable a => a -> (ByteString, Node)
-popRootNode_ bs =
-    let (bs', n) = B.spanEnd ((/=) '.') $ toBytes bs
-    in  (bs', Node n)
-
-appendFQDN_ :: Byteable a
-            => a
-            -> Node
-            -> ByteString
-appendFQDN_ main root =
-    B.intercalate "." $ map toBytes $ removeEmptyNodes $ (splitToNodes_ main) ++ [root]
-
-removeEmptyNodes :: [Node] -> [Node]
-removeEmptyNodes l =
-    case l of
-        []  -> []
-        [n] -> [n]
-        ((Node n):ns) | (B.null $ toBytes $ n) -> removeEmptyNodes ns
-                      | otherwise              -> (Node n):(removeEmptyNodes ns)
+concatFromNodes_ = B.intercalate "." . map toBytes . removeEmptyNodes
 
 -------------------------------------------------------------------------------
 --                                  FQDN                                     --
@@ -87,55 +72,51 @@ class Byteable fqdn => FQDN fqdn where
     toNodes :: fqdn -> [Node]
 
     -- | Create an FQDN from a given list of Nodes
-    fromNodes    :: [Node] -> Dns fqdn
+    fromNodes :: [Node] -> Dns fqdn
 
-    -- | Append a Node to the given FQDN
-    --
-    -- i.e.: appendNode "example.haskell" "com" = "example.haskell.com"
-    -- i.e.: appendNode "example.haskell.co." "uk" = "example.haskell.co.uk"
-    appendNode   :: fqdn -> Node -> Dns fqdn
-    removeSuffix :: fqdn -> fqdn -> Dns fqdn
-    appendFQDN   :: FQDN b => fqdn -> b -> Dns fqdn
+appendRootNode :: (FQDN fqdn, FQDN output)
+               => fqdn
+               -> Node
+               -> Dns output
+appendRootNode fqdn node =
+    fromNodes $ (toNodes fqdn) ++ [node]
 
-    -- | Return the Root Node
-    --
-    -- i.e.: getRootNode "example.com" == "com"
-    -- i.e.: getRootNode "example.com." == ""
-    getRootNode  :: fqdn -> Node
+-- | get the root node
+--
+-- Fail if the FQDN does not have any nodes
+getRootNode :: FQDN fqdn
+            => fqdn
+            -> Dns Node
+getRootNode fqdn =
+    getLast $ toNodes fqdn
+  where
+    getLast :: [Node] -> Dns Node
+    getLast []     = errorDns "Network.DNS.API.FQDN.getRootNode: empty node"
+    getLast [n]    = return n
+    getLast (_:xs) = getLast xs
 
-    -- | default implementation is a combination of:
-    -- removeFQDNSuffix (the function)
-    -- fromNodes
-    removeSuffix main suffix = fromNodes =<< removeFQDNSuffix main suffix
-
-    -- | default implementation is a combination of:
-    -- splitToNodes
-    -- fromNodes
-    appendFQDN main suffix = fromNodes $ toNodes main ++ toNodes suffix
-
-instance FQDN ByteString where
-    getRootNode fqdn =
-        let (_, n) = popRootNode_ fqdn
-        in  n
-    toNodes = splitToNodes_
-    fromNodes = return . concatFromNodes_
-    appendNode fqdn node = return $ appendFQDN_ fqdn node
+appendFQDN :: (FQDN fqdn1, FQDN fqdn2, FQDN output)
+           => fqdn1
+           -> fqdn2
+           -> Dns output
+appendFQDN main root =
+    fromNodes $ (toNodes main) ++ (toNodes root)
 
 -- | remove the given FQDN suffix from the FQDNEncoded
-removeFQDNSuffix :: (FQDN main, FQDN suffix)
+removeFQDNSuffix :: (FQDN main, FQDN suffix, FQDN output)
                  => main
                  -> suffix
-                 -> Dns [Node]
-removeFQDNSuffix encoded dom =
-    case makeRemoveSuffix encNodes domNodes of
-        Left err -> errorDns err
-        Right l  -> return $ reverse l
+                 -> Dns output
+removeFQDNSuffix main suffix =
+    case makeRemoveSuffix mainNodes suffixNodes of
+        Left err -> errorDns $ "Network.DNS.API.FQDN.appendFQDN: " ++ err
+        Right l  -> fromNodes $ reverse l
   where
-    domNodes :: [Node]
-    domNodes = reverse $ toNodes dom
+    suffixNodes :: [Node]
+    suffixNodes = reverse $ toNodes suffix
 
-    encNodes :: [Node]
-    encNodes = reverse $ toNodes encoded
+    mainNodes :: [Node]
+    mainNodes = reverse $ toNodes main
 
     makeRemoveSuffix :: [Node] -> [Node] -> Either String [Node]
     makeRemoveSuffix a  [] = Right a
@@ -143,6 +124,38 @@ removeFQDNSuffix encoded dom =
     makeRemoveSuffix (x:xs) (y:ys)
         | x == y    = makeRemoveSuffix xs ys
         | otherwise = Left "suffix does not match"
+
+-- | remove all the empty nodes but the last
+--
+-- > removeEmptyNodes [Node "", Node "example", Node "", Node "", Node "com" ] == [Node "example", Node "com" ]
+-- > removeEmptyNodes [Node "example", Node "", Node "", Node "com", Node "" ] == [Node "example", Node "com", Node ""]
+removeEmptyNodes :: [Node] -> [Node]
+removeEmptyNodes l =
+    case l of
+        []  -> []
+        [n] -> [n]
+        ((Node n):ns) | (B.null $ toBytes $ n) -> removeEmptyNodes ns
+                      | otherwise              -> (Node n):(removeEmptyNodes ns)
+
+instance FQDN ByteString where
+    toNodes = splitToNodes_
+    fromNodes = return . concatFromNodes_
+
+-------------------------------------------------------------------------------
+--                               UnsafeFQDN                                  --
+-------------------------------------------------------------------------------
+
+-- | This is an unsafe FQDN
+-- Which means it could be an unvalid FQDN
+-- see validateFQDN
+newtype UnsafeFQDN = UnsafeFQDN ByteString
+    deriving (Show, Eq, Ord)
+instance Byteable UnsafeFQDN where
+    toBytes (UnsafeFQDN bs) = bs
+
+instance FQDN UnsafeFQDN where
+    toNodes = splitToNodes_
+    fromNodes = return . UnsafeFQDN . concatFromNodes_
 
 -------------------------------------------------------------------------------
 --                                ValidFQDN                                  --
@@ -157,35 +170,12 @@ instance Byteable ValidFQDN where
 instance FQDN ValidFQDN where
     toNodes = splitToNodes_
     fromNodes = validateFQDN . concatFromNodes_
-    getRootNode f =
-        let (_, n) = popRootNode_ f
-        in  n
-    appendNode fqdn node = validateFQDN $ appendFQDN_ fqdn node
-
--------------------------------------------------------------------------------
---                               UnsafeFQDN                                  --
--------------------------------------------------------------------------------
-
--- | represent a encoded but not validated FQDN
--- (means that this FQDN is base32 encoded and but may not be a valide FQDN
-newtype UnsafeFQDN = UnsafeFQDN ByteString
-    deriving (Show, Eq, Ord)
-instance Byteable UnsafeFQDN where
-    toBytes (UnsafeFQDN bs) = bs
-
-instance FQDN UnsafeFQDN where
-    toNodes = splitToNodes_
-    fromNodes = return . UnsafeFQDN . concatFromNodes_
-    getRootNode f =
-        let (_, n) = popRootNode_ f
-        in  n
-    appendNode fqdn node = return $ UnsafeFQDN $ appendFQDN_ fqdn node
 
 -- | Unsafe Way to build a ValidFQDN
 --
 -- You should rather look at the function validateFQDN
 -- Which will provides security validations
-unsafeValidFQDN :: (FQDN a, Byteable a) => a -> ValidFQDN
+unsafeValidFQDN :: FQDN fqdn => fqdn -> ValidFQDN
 unsafeValidFQDN = ValidFQDN . toBytes
 
 -- | Validate a FQDN into a ValidFQDN
@@ -201,16 +191,15 @@ validateFQDN req = fullLength req >>= nodeLengths >>= checkAlphabet >>= return .
     fullLength :: FQDN unsafe => unsafe -> Dns unsafe
     fullLength fqdn
         | (B.length $ toBytes fqdn) < 256 = return fqdn
-        | otherwise = errorDns "Network.DNS.API.FQDN: checkEncoding: URL too long"
+        | otherwise = errorDns "Network.DNS.API.FQDN.validateFQDN: URL too long"
     
     checkAlphabet :: FQDN unsafe => unsafe -> Dns unsafe
     checkAlphabet fqdn
-        | B.foldr checkWord8 True $ toBytes fqdn = return fqdn
-        | otherwise = errorDns "Network.DNS.API.FQDN: checkEncoding: URL contains non-base32-encoded char"
+        | B.all checkWord8 $ toBytes fqdn = return fqdn
+        | otherwise = errorDns "Network.DNS.API.FQDN.validateFQDN: URL contains non-base32-encoded char"
 
-    checkWord8 :: Char -> Bool -> Bool
-    checkWord8 _ False = False
-    checkWord8 c True
+    checkWord8 :: Char -> Bool
+    checkWord8 c
         | c <= 'z' && c >= 'a' = True
         | c <= '9' && c >= '0' = True
         | c == '.' || c == '-' = True
@@ -218,12 +207,8 @@ validateFQDN req = fullLength req >>= nodeLengths >>= checkAlphabet >>= return .
 
     nodeLengths :: FQDN unsafe => unsafe -> Dns unsafe
     nodeLengths fqdn
-        | isJust $ B.foldr checkNodeW (Just 0) $ toBytes fqdn = return fqdn
-        | otherwise = errorDns "Network.DNS.API.FQDN: checkEncoding: URL contains too long labels"
+        | all checkNodeLength $ toNodes fqdn = return fqdn
+        | otherwise = errorDns "Network.DNS.API.FQDN.validateFQDN: URL contains too long labels"
 
-    checkNodeW :: Char -> Maybe Int -> Maybe Int
-    checkNodeW _ Nothing  = Nothing
-    checkNodeW w (Just c)
-        | c > 64    = Nothing
-        | w == '.'  = Just 0
-        | otherwise = Just $ c + 1
+    checkNodeLength :: Node -> Bool
+    checkNodeLength n = 64 > (B.length $ toBytes n)
