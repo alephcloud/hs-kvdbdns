@@ -18,41 +18,41 @@
 --
 
 module Network.DNS.API.Server
-  ( -- * Types
-    ServerConf(..)
-  , createServerConf
-  , Connection(getContext, getSockAddr, getCreationDate, getLastUsedDate, setKeepOpen)
-    -- * defaultServer
-  , getDefaultConnections
-  , defaultServer
-    -- * helper
-  , failError
-  ) where
+    ( -- * Types
+      ServerConf(..)
+    , createServerConf
+    , Connection(getContext, getSockAddr, getCreationDate, getLastUsedDate, setKeepOpen)
+      -- * defaultServer
+    , getDefaultConnections
+    , defaultServer
+      -- * helper
+    , failError
+    ) where
 
-import Control.Monad
-import Control.Applicative
+import           Control.Applicative
+import           Control.Concurrent
+import           Control.Concurrent.STM.TChan
+import           Control.Monad
+import           Control.Monad.STM
 
-import Data.Byteable
-import Data.ByteString (ByteString)
+import           Data.Byteable
+import           Data.ByteString (ByteString)
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as SL (toChunks, fromChunks)
-import Data.Hourglass.Types
-import Data.IP
-import Data.Maybe (catMaybes)
-import Data.Monoid (mconcat)
+import           Data.Hourglass.Types
+import           Data.IP
+import           Data.Maybe (catMaybes)
+import           Data.Monoid (mconcat)
 
-import Network.DNS hiding (encode, decode, lookup, responseA, responseAAAA)
+import           Network.DNS hiding (encode, decode, lookup, responseA, responseAAAA)
 import qualified Network.DNS as DNS
-import Network.DNS.API.Bind
-import Network.DNS.API.Error
-import Network.DNS.API.FQDN
-import Network.DNS.API.Connection (Connection)
-import qualified Network.DNS.API.Connection as API
-import Network.Socket hiding (recvFrom, recv, send)
 
-import Control.Monad.STM
-import Control.Concurrent
-import Control.Concurrent.STM.TChan
+import           Network.DNS.API.Bind
+import           Network.DNS.API.Error
+import           Network.DNS.API.FQDN
+import           Network.DNS.API.Connection (Connection)
+import qualified Network.DNS.API.Connection as API
+import           Network.Socket hiding (recvFrom, recv, send)
 
 ------------------------------------------------------------------------------
 --                         Server Configuration                             --
@@ -60,9 +60,9 @@ import Control.Concurrent.STM.TChan
 
 -- | Server configuration
 data ServerConf context = ServerConf
-  { getBindings :: DNSBindings
-  , inFail      :: DNSFormat -> IO (Either String DNSFormat)
-  }
+    { getBindings :: DNSBindings
+    , inFail      :: DNSFormat -> IO (Either String DNSFormat)
+    }
 
 -- | Create a default Server Conf with every queries configured to
 -- fail properly
@@ -76,13 +76,13 @@ createServerConf b =
 -- | Create the right DNSFormat error to answer to a query which failed
 failError :: DNSFormat -> DNSFormat
 failError req =
-  let hd = header req
-      flg = flags hd
-  in  req { header = hd { flags = flg { qOrR = QR_Response
-                                      , rcode = ServFail
-                                      }
-                        }
-          }
+    let hd = header req
+        flg = flags hd
+    in  req { header = hd { flags = flg { qOrR = QR_Response
+                                        , rcode = ServFail
+                                        }
+                          }
+            }
 
 ------------------------------------------------------------------------------
 --                         The main function                                --
@@ -196,58 +196,59 @@ responseAAAA q ident l =
 
 responseTXT :: Question -> Int -> [ByteString] -> DNSFormat
 responseTXT q ident l =
-  let hd = header defaultResponse
-      dom = qname q
-      al = map (\txt -> ResourceRecord dom TXT 0 (B.length txt) (RD_TXT txt)) l
-  in  defaultResponse
-        { header = hd { identifier = ident, qdCount = 1, anCount = length al }
-        , question = [q]
-        , answer = al
-        }
+    let hd = header defaultResponse
+        dom = qname q
+        al = map (\txt -> ResourceRecord dom TXT 0 (B.length txt) (RD_TXT txt)) l
+    in  defaultResponse
+            { header = hd { identifier = ident, qdCount = 1, anCount = length al }
+            , question = [q]
+            , answer = al
+            }
 
 -- | imported from dns:Network/DNS/Internal.hs
 --
 -- use this to get a default DNS format to send a query (if needed)
 defaultQuery :: DNSFormat
-defaultQuery = DNSFormat {
-    header = DNSHeader {
-       identifier = 0
-     , flags = DNSFlags {
-           qOrR         = QR_Query
-         , opcode       = OP_STD
-         , authAnswer   = False
-         , trunCation   = False
-         , recDesired   = True
-         , recAvailable = False
-         , rcode        = NoErr
-         }
-     , qdCount = 0
-     , anCount = 0
-     , nsCount = 0
-     , arCount = 0
-     }
-  , question   = []
-  , answer     = []
-  , authority  = []
-  , additional = []
-  }
+defaultQuery =
+    DNSFormat
+        { header = DNSHeader
+            { identifier = 0
+            , flags = DNSFlags
+                { qOrR         = QR_Query
+                , opcode       = OP_STD
+                , authAnswer   = False
+                , trunCation   = False
+                , recDesired   = True
+                , recAvailable = False
+                , rcode        = NoErr
+                }
+            , qdCount = 0
+            , anCount = 0
+            , nsCount = 0
+            , arCount = 0
+            }
+        , question   = []
+        , answer     = []
+        , authority  = []
+        , additional = []
+        }
 
 -- | imported from dns:Network/DNS/Internal.hs
 --
 -- use this to get a default DNS format to send a response
 defaultResponse :: DNSFormat
 defaultResponse =
-  let hd = header defaultQuery
-      flg = flags hd
-  in  defaultQuery {
-        header = hd {
-          flags = flg {
-              qOrR = QR_Response
-            , authAnswer = True
-            , recAvailable = True
+    let hd = header defaultQuery
+        flg = flags hd
+    in  defaultQuery
+            { header = hd
+                { flags = flg
+                    { qOrR = QR_Response
+                    , authAnswer = True
+                    , recAvailable = True
+                    }
+                }
             }
-    }
-  }
 
 ------------------------------------------------------------------------------
 --                          Internal Queue System                           --
@@ -275,39 +276,39 @@ popReqToHandle = atomically . readTChan
 
 defaultQueryHandler :: ServerConf a -> DNSReqToHandleChan a -> IO ()
 defaultQueryHandler conf chan = do
-  dnsReq <- popReqToHandle chan
-  eResp <- handleRequest conf (connection dnsReq) (getReq dnsReq)
-  case eResp of
-    Right bs -> defaultResponder (connection dnsReq) bs
-    Left err -> putStrLn err
+    dnsReq <- popReqToHandle chan
+    eResp <- handleRequest conf (connection dnsReq) (getReq dnsReq)
+    case eResp of
+        Right bs -> defaultResponder (connection dnsReq) bs
+        Left err -> putStrLn err
   where
     defaultResponder :: Connection a -> ByteString -> IO ()
     defaultResponder conn resp = do
-       API.write conn resp
-       keepOpen <- API.getKeepOpen conn
-       if keepOpen
-         then API.close conn -- TODO: put these requests into a forkIO
-         else API.close conn
+        API.write conn resp
+        keepOpen <- API.getKeepOpen conn
+        if keepOpen
+            then API.close conn -- TODO: put these requests into a forkIO
+            else API.close conn
 
 -- | a default server: handle queries for ever
 defaultListener :: DNSReqToHandleChan a -> Connection a -> IO ()
 defaultListener chan conn = do
-  -- Listen the given connection
-  API.listen conn 10
-  -- TODO: for now block it to no more than 10 connections
-  -- start accepting connection:
-  forever $ do
-    -- wait to get some request
-    client <- API.accept conn
-    -- read data
-    mbs <- API.read client 512
-    case mbs of
-      Nothing -> API.close client -- in case of a timeout: ignore the connection
-      Just bs ->
-        -- Try to decode it, if it works then add it to the queue
-        case DNS.decode (SL.fromChunks [bs]) of
-          Left  _   -> API.close client -- We don't want to throw an error if the command is wrong
-          Right req -> putReqToHandle chan $ DNSReqToHandle client req
+    -- Listen the given connection
+    API.listen conn 10
+    -- TODO: for now block it to no more than 10 connections
+    -- start accepting connection:
+    forever $ do
+        -- wait to get some request
+        client <- API.accept conn
+        -- read data
+        mbs <- API.read client 512
+        case mbs of
+            Nothing -> API.close client -- in case of a timeout: ignore the connection
+            Just bs ->
+                -- Try to decode it, if it works then add it to the queue
+                case DNS.decode (SL.fromChunks [bs]) of
+                Left  _   -> API.close client -- We don't want to throw an error if the command is wrong
+                Right req -> putReqToHandle chan $ DNSReqToHandle client req
 
 -- | Simple helper to get the default DNS Sockets
 --
@@ -317,28 +318,28 @@ getDefaultConnections :: Maybe String
                       -> Maybe a -- ^ the initial context value to use to the created connections
                       -> IO [Connection a]
 getDefaultConnections mport timeout mcontext = do
-  let (mflags, service) = maybe (([], Just "domain")) (\port -> ([AI_NUMERICSERV], Just port)) mport
-  addrinfos <- getAddrInfo
-                   (Just (defaultHints
+    let (mflags, service) = maybe (([], Just "domain")) (\port -> ([AI_NUMERICSERV], Just port)) mport
+    addrinfos <- getAddrInfo
+                    (Just (defaultHints
                             { addrFlags = AI_PASSIVE:mflags
                             , addrFamily = AF_INET
                             }
-                         )
-                   )
+                          )
+                    )
                    (Nothing)
                    service
-  catMaybes <$> mapM (addrInfoToSocket timeout mcontext) addrinfos
+    catMaybes <$> mapM (addrInfoToSocket timeout mcontext) addrinfos
 
 addrInfoToSocket :: Seconds -> Maybe a -> AddrInfo -> IO (Maybe (Connection a))
 addrInfoToSocket timeout mcontext addrinfo
-  | (addrSocketType addrinfo) `notElem` [Datagram, Stream] = return Nothing -- $ fail $ "socket type not supported: " ++ (show addrinfo)
-  | otherwise = do
-      sock <- socket (addrFamily addrinfo) (addrSocketType addrinfo) defaultProtocol
-      bindSocket sock (addrAddress addrinfo)
-      case addrSocketType addrinfo of
-           Datagram -> Just <$> API.newConnectionUDPServer sock timeout mcontext
-           Stream   -> Just <$> API.newConnectionTCPServer sock timeout mcontext
-           _        -> return $ Nothing -- "Socket Type not handle: " ++ (show addrinfo)
+    | (addrSocketType addrinfo) `notElem` [Datagram, Stream] = return Nothing -- $ fail $ "socket type not supported: " ++ (show addrinfo)
+    | otherwise = do
+        sock <- socket (addrFamily addrinfo) (addrSocketType addrinfo) defaultProtocol
+        bindSocket sock (addrAddress addrinfo)
+        case addrSocketType addrinfo of
+            Datagram -> Just <$> API.newConnectionUDPServer sock timeout mcontext
+            Stream   -> Just <$> API.newConnectionTCPServer sock timeout mcontext
+            _        -> return $ Nothing -- "Socket Type not handle: " ++ (show addrinfo)
 
 -- | launch the default server
 defaultServer :: ServerConf a
@@ -346,9 +347,9 @@ defaultServer :: ServerConf a
               -> IO ()
 defaultServer _    []       = error $ "Network.DNS.API.Server: defaultServer: list of DNSApiConnection is empty"
 defaultServer conf sockList = do
-  -- creat a TChan to pass request from the listeners to the handler
-  chan <- newDNSReqToHandleChan
-  -- start the listerners
-  mapM_ (forkIO . forever . defaultListener chan) sockList
-  -- start the query Hander
-  forever $ defaultQueryHandler conf chan
+    -- creat a TChan to pass request from the listeners to the handler
+    chan <- newDNSReqToHandleChan
+    -- start the listerners
+    mapM_ (forkIO . forever . defaultListener chan) sockList
+    -- start the query Hander
+    forever $ defaultQueryHandler conf chan
