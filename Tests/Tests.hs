@@ -17,7 +17,9 @@
 -- under the License.
 --
 
-module main where
+module Main
+    ( main
+    ) where
 import Test.Tasty
 import Test.Tasty.QuickCheck
 

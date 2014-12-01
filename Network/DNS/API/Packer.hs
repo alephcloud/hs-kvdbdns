@@ -20,7 +20,7 @@
 module Network.DNS.API.Packer
     ( -- * Types
       DnsPacker
-    , runDnsPacker
+    , dnsPack
     , getPackedSize
       -- * default tools
     , putWord8
@@ -40,7 +40,10 @@ import Foreign.Storable
 
 import Network.DNS.API.Error
 
-data DnsPacker = DnsPacker (Packer ()) Int
+data DnsPacker = DnsPacker
+    { getPacker     :: Packer ()
+    , getNeededSize :: Int
+    }
 
 instance Monoid DnsPacker where
     mempty = DnsPacker (return ()) 0
@@ -53,15 +56,18 @@ instance Monoid DnsPacker where
 getPackedSize :: DnsPacker -> Int
 getPackedSize (DnsPacker _ size) = size
 
--- | help to execute the packing of a bytestring
-runDnsPacker :: DnsPacker -> Dns ByteString
-runDnsPacker (DnsPacker packer size) =
-    let l = BP.pack packer size
+-- | Run a DNS Packer and return the packed string
+dnsPack :: DnsPacker
+        -> Dns ByteString
+dnsPack packer =
+    let l = BP.pack (getPacker packer) (getNeededSize packer)
     in  case l of
-            Left err -> errorDns $ "Network.DNS.API.dnsPack: pack fail: " ++ err ++ " " ++ (show size)
+            Left err -> errorDns $ "Network.DNS.API.dnsPack: pack fail: " ++ err ++ " " ++ (show $ getNeededSize packer)
             Right bs -> return bs
 
-putStorable :: Storable storable => storable -> DnsPacker
+putStorable :: Storable storable
+            => storable
+            -> DnsPacker
 putStorable s = DnsPacker (BP.putStorable s) (sizeOf s)
 
 putWord8 :: Word8 -> DnsPacker
@@ -73,10 +79,14 @@ putWord16 = putStorable
 putWord32 :: Word32 -> DnsPacker
 putWord32 = putStorable
 
-putByteString :: ByteString -> DnsPacker
+putByteString :: ByteString
+              -> DnsPacker
 putByteString bs = DnsPacker (BP.putByteString bs) (B.length bs)
 
-putSizedByteString :: ByteString -> DnsPacker
+-- | Equivalent to putByteString but it first keep pack the size into
+-- the first Bytes (the length of the string can't be upper than 255)
+putSizedByteString :: ByteString
+                   -> DnsPacker
 putSizedByteString bs =
        putWord8 (fromIntegral $ B.length bs)
     <> putByteString bs

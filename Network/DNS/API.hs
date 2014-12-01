@@ -36,14 +36,12 @@ module Network.DNS.API
   , pureDns
   , execDnsIO
   , errorDnsIO
-    -- ** Request
-  , Encodable(..)
-  , encodeFQDNEncoded
-  , decodeFQDNEncoded
-    -- ** Response
+    -- ** Packable
   , Packable(..)
   , packData
   , unpackData
+  , encodeFQDNEncoded
+  , decodeFQDNEncoded
 
     -- * send DNS API queries
   , sendQuery

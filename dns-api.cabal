@@ -65,7 +65,7 @@ Test-Suite           tests
                      , bytestring
                      , tasty
                      , tasty-quickcheck
-                     , hs-dns-api
+                     , dns-api
                      , mtl
                      , transformers >= 0.4
                      , bsparse >= 0.0.3
@@ -80,7 +80,7 @@ Executable           Client
   if flag(executable)
     build-depends:       base >=4.7 && <4.8
                        , bytestring
-                       , hs-dns-api
+                       , dns-api
                        , mtl
                        , hourglass
                        , bsparse >= 0.0.3
@@ -102,7 +102,7 @@ Executable           Server
                        , transformers >= 0.4
                        , bsparse >= 0.0.3
                        , bspack >= 0.0.2
-                       , hs-dns-api
+                       , dns-api
                        , hourglass
     Buildable: True
   else

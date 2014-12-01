@@ -48,9 +48,9 @@ import Data.Functor.Identity
 data TestCommand = TestCommand Word8 ByteString
     deriving (Show, Eq)
 
-instance Encodable TestCommand where
-    encode (TestCommand w bs) = putWord8 w <> putByteString bs
-    decode = TestCommand <$> BP.anyByte <*> BP.takeAll
+instance Packable TestCommand where
+    pack (TestCommand w bs) = putWord8 w <> putByteString bs
+    unpack = TestCommand <$> BP.anyByte <*> BP.takeAll
 
 data TestRequest = TestRequest TestCommand ValidFQDN
   deriving (Show, Eq)

@@ -115,7 +115,7 @@ sendQueryRaw = sendQueryRawType DNS.TXT
 -- Generic queries -----------------------------------------------------------
 
 -- | Send a @t@ record query to the the given DNS Resolver (seed)
-sendQueryToType :: Encodable request
+sendQueryToType :: Packable request
                 => DNS.TYPE
                 -> DNS.ResolvSeed -- ^ the DNSResolverSeed
                 -> request
@@ -128,7 +128,7 @@ sendQueryToType t seed req dom = do
 -- | Send a query with the default DNS Resolver
 --
 -- Will send a record @type@ to the default DNS Resolver
-sendQueryType :: Encodable request
+sendQueryType :: Packable request
               => DNS.TYPE
               -> request
               -> ValidFQDN
@@ -141,7 +141,7 @@ sendQueryType t req dom = do
 parseQueryTXT :: [DNS.RDATA]
               -> Dns ByteString
 parseQueryTXT q =
-    -- decodeResponse .
+    -- decodeResponse
     B.concat <$> mapM toByteString q
   where
     toByteString :: DNS.RDATA -> Dns ByteString
@@ -149,7 +149,7 @@ parseQueryTXT q =
     toByteString d               = errorDns $ "unexpected type: " ++ (show d)
 
 -- | Send a TXT query with the given resolvSeed
-sendQueryTo :: (Packable response, Encodable request)
+sendQueryTo :: (Packable response, Packable request)
             => DNS.ResolvSeed -- ^ the DNSResolverSeed
             -> request
             -> ValidFQDN
@@ -168,7 +168,7 @@ sendQueryTo seed req dom = do
 --    DNS.withResolver rs $
 --           \resolver -> sendQueryTo resolver req dom
 -- @
-sendQuery :: (Packable response, Encodable request)
+sendQuery :: (Packable response, Packable request)
           => request
           -> ValidFQDN
           -> DnsIO response

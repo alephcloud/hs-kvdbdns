@@ -24,9 +24,9 @@ data Command = Command
   , param   :: ByteString
   } deriving (Show, Eq)
 
-instance Encodable Command where
-    encode (Command c p) = putSizedByteString c <> putByteString p
-    decode = commandParser
+instance Packable Command where
+    pack (Command c p) = putSizedByteString c <> putByteString p
+    unpack = commandParser
 
 commandPacker :: Command -> Int -> BP.Packer ()
 commandPacker (Command c p) sizeOfCommand = do

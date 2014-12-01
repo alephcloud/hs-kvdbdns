@@ -18,16 +18,17 @@
 --
 
 module Network.DNS.API.Types
-  ( -- ** Class
-    Encodable(..)
-  , decodeFQDNEncoded
-  , encodeFQDNEncoded
-  , dnsParse
-    -- * Response
-    -- ** Class
-  , Packable(..)
+  ( -- * Class
+    Packable(..)
+    -- ** helper
   , packData
   , unpackData
+    -- ** FQDN Helper
+  , decodeFQDNEncoded
+  , encodeFQDNEncoded
+    -- * level helpers
+  , dnsParse
+  , dnsPack
   ) where
 
 import qualified Codec.Binary.Base32    as BSB32
@@ -59,27 +60,36 @@ dnsParse parser bs = do
                        | otherwise -> errorDns "Network.DNS.API.Types.dnsParse: unparsed data"
 
 ------------------------------------------------------------------------------
---                                Encodable                                 --
+--                              Packable                                    --
 ------------------------------------------------------------------------------
 
--- | This is the main type to implement to make your requests encodable
---
--- As we use the Domain Name field to send request to the DNS Server we need to
--- encode the URL into a format that will be a valide format for every DNS
--- servers our request may go through.
-class Encodable encodable where
-    -- | return a Packer for the given encodable
-    encode :: encodable -> DnsPacker
-    -- | the Parser
-    decode :: BP.Parser encodable
+-- | The class that objects must implement in order to be embedded into DNS
+-- queries or DNS responses.
+class Packable packable where
+    pack   :: packable -> DnsPacker
+    unpack :: BP.Parser packable
+
+-- | unpack the given bytestring
+unpackData :: Packable packable
+           => ByteString
+           -> Dns packable
+unpackData = dnsParse unpack
+
+-- | pack the given data
+packData :: Packable packable => packable -> Dns ByteString
+packData = dnsPack . pack
+
+------------------------------------------------------------------------------
+--                            Pack / Unpack FQDN                            --
+------------------------------------------------------------------------------
 
 -- | decode a FQDN
 --
 -- Remove the dots, unbase32 and decode the bytestring
-decodeFQDNEncoded :: (Encodable encodable, FQDN fqdn)
-                  => fqdn          -- ^ the FQDN which contains the Encodable data
-                  -> Dns encodable
-decodeFQDNEncoded fqdn = decode32FQDNEncoded >>= dnsParse decode
+decodeFQDNEncoded :: (Packable packable, FQDN fqdn)
+                  => fqdn         -- ^ the FQDN which contains the Encodable data
+                  -> Dns packable
+decodeFQDNEncoded fqdn = decode32FQDNEncoded >>= unpackData
   where
     decode32FQDNEncoded :: Dns ByteString
     decode32FQDNEncoded =
@@ -100,10 +110,10 @@ decodeFQDNEncoded fqdn = decode32FQDNEncoded >>= dnsParse decode
 -- | encode into a FQDN
 --
 -- Run the Packer, base32 and intercalate a dot every 63 bytes
-encodeFQDNEncoded :: (Encodable encodable, FQDN fqdn)
-                  => encodable -- ^ the data to encode into FQDN
+encodeFQDNEncoded :: (Packable packable, FQDN fqdn)
+                  => packable -- ^ the data to encode into FQDN
                   -> Dns fqdn
-encodeFQDNEncoded d = runDnsPacker (encode d) >>= encode32FQDNEncoded
+encodeFQDNEncoded d = packData d >>= encode32FQDNEncoded
   where
     encode32FQDNEncoded :: (FQDN fqdn)
                         => ByteString
@@ -126,25 +136,3 @@ encodeFQDNEncoded d = runDnsPacker (encode d) >>= encode32FQDNEncoded
         filterPadding :: Char -> Char
         filterPadding '=' = '9'
         filterPadding c   = toLower c
-
-------------------------------------------------------------------------------
---                              Packable                                    --
-------------------------------------------------------------------------------
-
--- | This represent a packable
---
--- It is use to pack/unpack (into bytestring) a command in the case of the
--- proposed Request
-class Packable packable where
-    pack   :: packable -> DnsPacker
-    unpack :: BP.Parser packable
-
--- | unpack the given bytestring
-unpackData :: Packable packable
-           => ByteString
-           -> Dns packable
-unpackData = dnsParse unpack
-
--- | pack the given data
-packData :: Packable packable => packable -> Dns ByteString
-packData = runDnsPacker . pack
