@@ -23,7 +23,7 @@ module Network.DNS.API.Bind.Parser
     ) where
 
 import           Control.Applicative
-import           Data.Char (isAlpha, isAlphaNum)
+import           Data.Char (isAlpha, isAlphaNum, toUpper)
 import qualified Data.ByteString.Char8 as BC
 import           Data.Maybe (catMaybes)
 import           Data.String.Parse (Parser, Result(..))
@@ -38,78 +38,95 @@ import           Network.DNS.API.Error
 -------------------------------------------------------------------------------
 
 data BindingLine = BindingLine
-    { getLineType :: TYPE
-    , getLineFQDN :: ValidFQDN
-    , getLineCommand :: String
-    , getLineOptions :: Opts
+    { getLineType :: !TYPE
+    , getLineFQDN :: !ValidFQDN
+    , getLineCommand :: !String
+    , getLineOptions :: !Opts
     } deriving (Show, Eq)
 
 parseBindFile :: FilePath  -> IO (Either String [BindingLine])
 parseBindFile filepath = do
-    content <- lines <$> readFile filepath
+    content <- zip [1..] . lines <$> readFile filepath
     return $ parseBindingLines content
 
-parseBindingLines :: [String] -> Either String [BindingLine]
+parseBindingLines :: [(Int, String)] -> Either String [BindingLine]
 parseBindingLines l = catMaybes <$> mapM parseBindingLine l
 
-parseBindingLine :: String -> Either String (Maybe BindingLine)
-parseBindingLine l
+parseBindingLine :: (Int, String) -> Either String (Maybe BindingLine)
+parseBindingLine (line, l)
     | null l = Right Nothing
     | otherwise =
         case P.parse bindingOrCommentParser l of
             ParseOK   _ v -> Right v
-            ParseFail err -> Left $ "Networl.DNS.API.Bind: parseBindlingLine: " ++ err
+            ParseFail err -> Left $ errorMsg err
             ParseMore f   ->
                 -- Force the state termination
                 case f "\n" of
                     ParseOK _ v -> Right v
-                    ParseFail err -> Left $ "Networl.DNS.API.Bind: parseBindlingLine: " ++ err
-                    _             -> Left $ "Networl.DNS.API.Bind: parseBindlingLine: cannot finish the state"
+                    ParseFail err -> Left $ errorMsg err
+                    _             -> Left $ errorMsg "nonterminal state"
+  where
+    errorMsg :: String -> String
+    errorMsg msg = "Network.DNS.API.Bind.Parser.parseBindingLine: line(" ++ show line ++ "): " ++ msg
 
 bindingOrCommentParser :: Parser (Maybe BindingLine)
 bindingOrCommentParser =
-    (Just <$> bindingLineParser) <|> (commentLineParser >> return Nothing)
+    (commentLineParser >> return Nothing)
+    <|> (Just <$> bindingLineParser)
 
 commentLineParser :: Parser ()
 commentLineParser = skipSpaces >> P.char '#'
 
 bindingLineParser :: Parser BindingLine
 bindingLineParser = do
+    BindingLine
+        <$> typeParser
+        <*> fqdnParser
+        <*> commandParser
+        <*> optsParser
+
+commandParser :: Parser String
+commandParser = do
     skipSpaces
-    t <- typeParser
-    skipSpaces
-    fqdn <- fqdnParser
-    skipSpaces
-    name <- P.takeWhile isAlphaNum
-    skipSpaces
-    opts <- optsParser
-    return $ BindingLine t fqdn name opts
+    str <- takeUntilSpaces
+    if and $ map isAlphaNum str
+        then return str
+        else fail $ "a command can only be an AlphaNum"
 
 skipSpaces :: Parser ()
 skipSpaces = P.skipWhile (\c -> c `elem` " \t")
 
+takeUntilSpaces :: Parser String
+takeUntilSpaces = P.takeWhile (not . flip elem " \t")
+
 typeParser :: Parser TYPE
 typeParser = do
-    str <- P.takeWhile isAlpha
-    case str of
-        "A"     -> return A
-        "AAAA"  -> return AAAA
-        "TXT"   -> return TXT
-        "NS"    -> return NS
-        "CNAME" -> return CNAME
-        "DNAME" -> return DNAME
-        "PTR"   -> return PTR
-        "MX"    -> fail "MX not supported yet"
-        "SOA"   -> fail "SOA not supported yet"
-        "SRV"   -> fail "SRV not supported yet"
-        _       -> fail $ "TYPE '" ++ str ++ "' not supported"
+    skipSpaces
+    str <- takeUntilSpaces
+    if and $ map isAlpha str
+        then switchDNSType str
+        else fail $ "a DNS Type can only be an Alpha"
+  where
+    switchDNSType :: String -> Parser TYPE
+    switchDNSType str =
+        case map toUpper str of
+            "A"     -> return A
+            "AAAA"  -> return AAAA
+            "TXT"   -> return TXT
+            "NS"    -> return NS
+            "CNAME" -> return CNAME
+            "DNAME" -> return DNAME
+            "PTR"   -> return PTR
+            "MX"    -> fail "MX not supported yet"
+            "SOA"   -> fail "SOA not supported yet"
+            "SRV"   -> fail "SRV not supported yet"
+            _       -> fail $ "TYPE '" ++ str ++ "' not supported"
 
 fqdnParser :: Parser ValidFQDN
 fqdnParser = do
-    str <- P.takeWhile (\c -> isAlphaNum c || c `elem` "-.")
-    case execDns $ validateFQDN $ BC.pack str of
-        Left  err  -> fail $ "invalid FQDN: " ++ err
-        Right fqdn -> return fqdn
+    skipSpaces
+    str <- takeUntilSpaces
+    either (fail . (++) "invalid FQDN: ") return $ execDns $ validateFQDN $ BC.pack str
 
 -- | Opts Parser
 --
@@ -129,7 +146,9 @@ fqdnParser = do
 -- * fqdn=domain.net.,priority=5
 -- * ip=::1
 optsParser :: Parser Opts
-optsParser = optNoneParser <|> optListParser emptyOpts
+optsParser = do
+    skipSpaces
+    optNoneParser <|> optListParser emptyOpts
 
 optNoneParser :: Parser Opts
 optNoneParser = P.string "none" >> return emptyOpts
@@ -169,4 +188,3 @@ optKeyValParser = do
     P.char charAssign
     value <- quotedStringParser <|> (P.takeWhile isValueChar)
     return (key, value)
-
