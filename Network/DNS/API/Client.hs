@@ -256,13 +256,13 @@ contactDNSResolverAt hostname mport mto mr =
 --
 -- Will first attempt to create a ResolvSeed with the HostName information
 -- (The DNS Server address and the port) if provided.
--- We will try any IPv4 or IPv6 we can collect from the network
+-- We will try any IPv4 or IPv6 available from the given domain name
 --
 -- If still not found, we will then fall back to the default DNS Resolver
 -- (/etc/resolv.conf in linux/mac).
 --
 -- This function raises an exception in case the last attempt failed
-makeResolvSeedSafe :: Maybe ByteString -- ^ the DNS Server to contact
+makeResolvSeedSafe :: Maybe ByteString -- ^ the DNS Server to contact (Domain Name, IPv4 or IPv6)
                    -> Maybe PortNumber -- ^ port number (useless without the DNS Server to contact)
                    -> Maybe Seconds    -- ^ timeout
                    -> Maybe Int        -- ^ retry
