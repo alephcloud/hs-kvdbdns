@@ -25,6 +25,8 @@ module Network.DNS.API.Error
     , pureDns
     , execDns
     , execDnsIO
+
+    , tryUntilSuccess
     ) where
 
 import Control.Applicative
@@ -33,10 +35,10 @@ import Control.Monad.Identity
 
 -- | Pure DNS error Monad
 newtype Dns   a = Dns { runDns :: Except String a }
-    deriving (Functor, Applicative, Monad)
+    deriving (Functor, Applicative, Monad, Alternative)
 -- | DNS error IO Monad
 newtype DnsIO a = DnsIO { runDnsIO :: ExceptT String IO a }
-    deriving (Functor, Applicative, Monad, MonadIO)
+    deriving (Functor, Applicative, Monad, MonadIO, Alternative)
 
 -- | lift a Dns into a DnsIO
 pureDns :: Dns a -> DnsIO a
@@ -57,3 +59,14 @@ errorDnsIO = DnsIO . throwError
 -- | run the DnsIO
 execDnsIO :: DnsIO a -> IO (Either String a)
 execDnsIO = runExceptT . runDnsIO
+
+tryUntilSuccess :: (input -> DnsIO output)
+                -> DnsIO output
+                -> [input]
+                -> DnsIO output
+tryUntilSuccess _ errFun [] = errFun
+tryUntilSuccess fun errFun (x:xs) = do
+    res <- liftIO $ execDnsIO $ fun x
+    case res of
+        Left  _ -> tryUntilSuccess fun errFun xs
+        Right r -> return r
