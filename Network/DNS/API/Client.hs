@@ -30,6 +30,8 @@ module Network.DNS.API.Client
     , sendQueryRawType
     , sendQueryRawToType
       -- * DNS resolver
+    , contactDNSResolver
+    , contactDNSResolverAt
     , makeResolvSeedSafe
     ) where
 
@@ -46,15 +48,22 @@ import qualified Network.DNS as DNS
 import Network.DNS.API.Error
 import Network.DNS.API.Types
 import Network.DNS.API.FQDN
-import Network.Socket (PortNumber)
+import Network.Socket (PortNumber, HostName)
 
 ------------------------------------------------------------------------------
 -- Internal methods
 ------------------------------------------------------------------------------
 
 -- catch all exception
-tryAny :: IO a -> (SomeException -> IO a) -> IO a
-tryAny = Control.Exception.catch
+catchAny :: IO a -> (SomeException -> DnsIO a) -> DnsIO a
+catchAny action alternative = do
+    res <- liftIO $ tryAny action
+    case res of
+        Left  e -> alternative e
+        Right a -> return a
+
+tryAny :: IO a -> IO (Either SomeException a)
+tryAny = Control.Exception.try
 
 sendQueryRawType' :: DNS.TYPE
                   -> DNS.Resolver
@@ -63,13 +72,16 @@ sendQueryRawType' :: DNS.TYPE
 sendQueryRawType' t resolver fqdn = do
     doLookup $ toBytes fqdn
   where
+    errorMsg :: String -> String
+    errorMsg = (++) "Network.DNS.API.Client.sendQueryRaw: "
+
     doLookup :: DNS.Domain -> DnsIO [DNS.RDATA]
     doLookup d = do
-      result <- liftIO $ tryAny (DNS.lookup resolver d t)
-                                (\_ -> return $ Left DNS.OperationRefused)
-      case result of
-        Left err -> pureDns $ errorDns $ "Network.DNS.API.Client.sendQueryRaw': (" ++ (show fqdn) ++ "): " ++ (show err)
-        Right l  -> return l
+        result <- liftIO $ tryAny (DNS.lookup resolver d t)
+        case result of
+            Left ex -> pureDns $ errorDns $ errorMsg $ "exception while trying to contact server: " ++ show ex
+            Right (Left err) -> fail $ errorMsg $ "server respond error message: " ++ show err
+            Right (Right l) -> return l
 
 ------------------------------------------------------------------------------
 -- DNS Query
@@ -183,6 +195,53 @@ sendQuery req dom = do
 -- ResolvSeed helper
 ------------------------------------------------------------------------------
 
+-- | This function is to contact a specific DNS Resolver using a Domain Name
+contactDNSResolver :: FQDN fqdn
+                   => fqdn             -- ^ the DNS Server to contact
+                   -> Maybe PortNumber -- ^ port number
+                   -> Maybe Seconds    -- ^ timeout
+                   -> Maybe Int        -- ^ retry
+                   -> DnsIO DNS.ResolvSeed
+contactDNSResolver fqdn mport mto mr = do
+    rs <- catchAny
+            (DNS.makeResolvSeed resolvConf)
+            (\ex -> fail $ errorMsg $ "error while creating the ResolvSeed: " ++ show ex)
+    -- TODO: add lookupAAAA
+    result <- liftIO $ DNS.withResolver rs $ \resolver -> DNS.lookupA resolver (toBytes fqdn)
+    case result of
+        Right (a:_) -> contactDNSResolverAt (show a) mport mto mr
+        Right []    -> fail $ errorMsg $ "no server to contact at this domain: " ++ (show $ toBytes fqdn)
+        Left err    -> fail $ errorMsg $ "error while lookupA: " ++ show err
+  where
+    errorMsg :: String -> String
+    errorMsg str = "Network.DNS.API.Client.contactDNSResovler: " ++ str
+
+    resolvConf :: DNS.ResolvConf
+    resolvConf = let r1 = DNS.defaultResolvConf
+                     r2 = maybe r1 (\(Seconds to) -> r1 { DNS.resolvTimeout = (fromIntegral to) * 3000 * 3000 }) mto
+                 in maybe r2 (\r  -> r2 { DNS.resolvRetry = r }) mr
+
+-- | Attempt to create a resolv seed which contact the given hostname
+contactDNSResolverAt :: HostName         -- ^ an ip address (IPv6 or IPv4)
+                     -> Maybe PortNumber -- ^ port number
+                     -> Maybe Seconds    -- ^ timeout
+                     -> Maybe Int        -- ^ retry
+                     -> DnsIO DNS.ResolvSeed
+contactDNSResolverAt hostname mport mto mr =
+    catchAny -- TODO: try all the returned IP address
+         (DNS.makeResolvSeed $ resolvConf { DNS.resolvInfo = resolvInfo $ show hostname })
+         (\_ -> fail $ errorMsg $ "could not create a resolv seed from the received IP" ++ show hostname)
+  where
+    errorMsg :: String -> String
+    errorMsg str = "Network.DNS.API.Client.contactDNSResovlerAt: " ++ str
+
+    resolvInfo :: String -> DNS.FileOrNumericHost
+    resolvInfo s = maybe (DNS.RCHostName s) (\p -> DNS.RCHostPort s p) mport
+    resolvConf :: DNS.ResolvConf
+    resolvConf = let r1 = DNS.defaultResolvConf
+                     r2 = maybe r1 (\(Seconds to) -> r1 { DNS.resolvTimeout = (fromIntegral to) * 3000 * 3000 }) mto
+                 in maybe r2 (\r  -> r2 { DNS.resolvRetry = r }) mr
+
 -- | Create the ResolvSeed using the given parameters
 --
 -- Let Nothing to all the parameters to use the default options
@@ -200,21 +259,13 @@ makeResolvSeedSafe :: Maybe ByteString -- ^ the DNS Server to contact
                    -> Maybe Seconds    -- ^ timeout
                    -> Maybe Int        -- ^ retry
                    -> IO DNS.ResolvSeed
-makeResolvSeedSafe mhn mport mto mr = do
-  rs <- DNS.makeResolvSeed resolvConf
-  case mhn of
-    Nothing -> return rs
-    Just hn -> do
-      result <- DNS.withResolver rs $ \resolver -> DNS.lookupA resolver hn
-      case result of
-        Right (a:_) -> tryAny (DNS.makeResolvSeed $ resolvConf { DNS.resolvInfo = resolvInfo $ show a })
-                              (\_ -> return rs)
-        _           -> return rs
+makeResolvSeedSafe mfqdn mport mto mr = do
+    mrs <- maybe (return $ Left "") (\fqdn -> execDnsIO $ contactDNSResolver fqdn mport mto mr) mfqdn
+    case mrs of
+        Right rs -> return rs
+        Left  _  -> DNS.makeResolvSeed resolvConf
   where
-    resolvInfo :: String -> DNS.FileOrNumericHost
-    resolvInfo s = maybe (DNS.RCHostName s) (\p -> DNS.RCHostPort s p) mport
     resolvConf :: DNS.ResolvConf
     resolvConf = let r1 = DNS.defaultResolvConf
                      r2 = maybe r1 (\(Seconds to) -> r1 { DNS.resolvTimeout = (fromIntegral to) * 3000 * 3000 }) mto
                  in maybe r2 (\r  -> r2 { DNS.resolvRetry = r }) mr
-
