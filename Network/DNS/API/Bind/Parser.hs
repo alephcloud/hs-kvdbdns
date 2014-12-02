@@ -37,14 +37,17 @@ import           Network.DNS.API.Error
 --                              Parser                                       --
 -------------------------------------------------------------------------------
 
+-- | represent a Bind line
 data BindingLine = BindingLine
-    { getLineType :: !TYPE
-    , getLineFQDN :: !ValidFQDN
+    { getLineType    :: !TYPE
+    , getLineFQDN    :: !ValidFQDN
     , getLineCommand :: !String
     , getLineOptions :: !Opts
     } deriving (Show, Eq)
 
-parseBindFile :: FilePath  -> IO (Either String [BindingLine])
+-- | Parse a Bind file
+parseBindFile :: FilePath -- ^ file path to the bind file
+              -> IO (Either String [BindingLine])
 parseBindFile filepath = do
     content <- zip [1..] . lines <$> readFile filepath
     return $ parseBindingLines content
