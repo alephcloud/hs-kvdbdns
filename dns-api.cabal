@@ -1,5 +1,5 @@
 name:                dns-api
-version:             0.2.0.0
+version:             0.2.0.1
 synopsis:            A simple API to send command over DNS protocol
 description:
     DNS API is an API to easily setup a DNS Server or send DNS queries.
