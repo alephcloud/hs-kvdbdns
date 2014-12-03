@@ -48,7 +48,7 @@ library
                      , data-default
                      , stm
                      , mtl
-                     , transformers >= 0.4
+                     , transformers >= 0.3
                      , ghc-prim
                      , hourglass
                      , byteable
@@ -67,7 +67,7 @@ Test-Suite           tests
                      , tasty-quickcheck
                      , dns-api
                      , mtl
-                     , transformers >= 0.4
+                     , transformers >= 0.3
                      , bsparse >= 0.0.3
                      , bspack >= 0.0.2
                      , byteable
@@ -99,7 +99,7 @@ Executable           Server
                        , bytestring
                        , data-default
                        , mtl
-                       , transformers >= 0.4
+                       , transformers >= 0.3
                        , bsparse >= 0.0.3
                        , bspack >= 0.0.2
                        , dns-api
