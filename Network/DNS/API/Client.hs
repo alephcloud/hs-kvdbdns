@@ -49,6 +49,7 @@ import qualified Network.DNS as DNS
 import Network.DNS.API.Error
 import Network.DNS.API.Types
 import Network.DNS.API.FQDN
+import Network.DNS.API.Resolv
 import Network.Socket (PortNumber, HostName)
 
 ------------------------------------------------------------------------------
@@ -117,7 +118,7 @@ sendQueryRawType :: FQDN fqdn
                  -> fqdn
                  -> DnsIO [DNS.RDATA]
 sendQueryRawType rc t fqdn = do
-    rs <- liftIO $ DNS.makeResolvSeed rc
+    rs <- getFirstResolvSeed [rc]
     sendQueryRawToType t rs fqdn
 
 -- | send a Raw query using the default resolver
@@ -275,11 +276,8 @@ makeResolvSeedSafe mfqdn mport mto mr = do
                  mfqdn
     case mrs of
         Right rs -> return rs
-        Left  _  -> do
-            ers <- execDnsIO $ catchAny (DNS.makeResolvSeed resolvConf) (\ex -> pureDns $ errorDns $ errorMsg $ "could not create it with the local config: " ++ show ex)
-            case ers of
-                Right rs -> return rs
-                Left  _  -> DNS.makeResolvSeed $ resolvConf { DNS.resolvInfo = DNS.RCHostName "8.8.8.8" }
+        Left  _  ->
+            either error id <$> (execDnsIO $ getFirstResolvSeed [resolvConf, resolvConf { DNS.resolvInfo = DNS.RCHostName "8.8.8.8" } ])
   where
     errorMsg :: String -> String
     errorMsg str = "Network.DNS.API.Client.makeResolvSeedSafe: " ++ str
