@@ -51,7 +51,7 @@ catchAny action alternativeAction = do
 -- | Try the list of ResolvConf and stop at the first working one
 getFirstResolvSeed :: [DNS.ResolvConf] -> DnsIO DNS.ResolvSeed
 getFirstResolvSeed [] = pureDns $ errorDns $ "Network.DNS.API.Resolv.getFirstResolvSeed: no Safe ResolvConf"
-getFirstResolvSeed (rc:rcs) = do
+getFirstResolvSeed (rc:rcs) =
     catchAny
         (DNS.makeResolvSeed rc)
         (\_ -> getFirstResolvSeed rcs)
