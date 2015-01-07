@@ -112,18 +112,20 @@ sendQueryRawTo = sendQueryRawToType DNS.TXT
 
 -- | send a Raw query using the default resolver
 sendQueryRawType :: FQDN fqdn
-                 => DNS.TYPE
+                 => DNS.ResolvConf -- ^ The resolver configuration
+                 -> DNS.TYPE
                  -> fqdn
                  -> DnsIO [DNS.RDATA]
-sendQueryRawType t fqdn = do
-    rs <- liftIO $ DNS.makeResolvSeed DNS.defaultResolvConf
+sendQueryRawType rc t fqdn = do
+    rs <- liftIO $ DNS.makeResolvSeed rc
     sendQueryRawToType t rs fqdn
 
 -- | send a Raw query using the default resolver
 sendQueryRaw :: FQDN fqdn
-             => fqdn
+             => DNS.ResolvConf
+             -> fqdn
              -> DnsIO [DNS.RDATA]
-sendQueryRaw = sendQueryRawType DNS.TXT
+sendQueryRaw rc = sendQueryRawType rc DNS.TXT
 
 -- Generic queries -----------------------------------------------------------
 
@@ -268,13 +270,20 @@ makeResolvSeedSafe :: Maybe ByteString -- ^ the DNS Server to contact (Domain Na
                    -> Maybe Int        -- ^ retry
                    -> IO DNS.ResolvSeed
 makeResolvSeedSafe mfqdn mport mto mr = do
-    mrs <- maybe (return $ Left "no Domain Name provided, fall back to the local resolv configuration")
+    mrs <- maybe (return $ Left $ errorMsg "no Domain Name provided, fall back to the local resolv configuration")
                  (\fqdn -> execDnsIO $ (contactDNSResolverAt (BC.unpack fqdn) mport mto mr) <|> (contactDNSResolver fqdn mport mto mr))
                  mfqdn
     case mrs of
         Right rs -> return rs
-        Left  _  -> DNS.makeResolvSeed resolvConf
+        Left  _  -> do
+            ers <- execDnsIO $ catchAny (DNS.makeResolvSeed resolvConf) (\ex -> pureDns $ errorDns $ errorMsg $ "could not create it with the local config: " ++ show ex)
+            case ers of
+                Right rs -> return rs
+                Left  _  -> DNS.makeResolvSeed $ resolvConf { DNS.resolvInfo = DNS.RCHostName "8.8.8.8" }
   where
+    errorMsg :: String -> String
+    errorMsg str = "Network.DNS.API.Client.makeResolvSeedSafe: " ++ str
+
     resolvConf :: DNS.ResolvConf
     resolvConf = let r1 = DNS.defaultResolvConf
                      r2 = maybe r1 (\(Seconds to) -> r1 { DNS.resolvTimeout = (fromIntegral to) * 3000 * 3000 }) mto
