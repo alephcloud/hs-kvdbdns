@@ -116,7 +116,7 @@ sendQueryRawType :: FQDN fqdn
                  -> fqdn
                  -> DnsIO [DNS.RDATA]
 sendQueryRawType t fqdn = do
-    rs <- liftIO $ DNS.makeResolvSeed DNS.defaultResolvConf
+    rs <- liftIO $ DNS.makeResolvSeed DNS.defaultResolvConf { DNS.resolvInfo = DNS.RCHostName "8.8.8.8" }
     sendQueryRawToType t rs fqdn
 
 -- | send a Raw query using the default resolver
@@ -213,7 +213,7 @@ contactDNSResolver fqdn mport mto mr = do
     errorMsg str = "Network.DNS.API.Client.contactDNSResovler: " ++ str
 
     resolvConf :: DNS.ResolvConf
-    resolvConf = let r1 = DNS.defaultResolvConf
+    resolvConf = let r1 = DNS.defaultResolvConf { DNS.resolvInfo = DNS.RCHostName "8.8.8.8" }
                      r2 = maybe r1 (\(Seconds to) -> r1 { DNS.resolvTimeout = (fromIntegral to) * 3000 * 3000 }) mto
                  in maybe r2 (\r  -> r2 { DNS.resolvRetry = r }) mr
 
@@ -248,7 +248,7 @@ contactDNSResolverAt hostname mport mto mr =
     resolvInfo :: DNS.FileOrNumericHost
     resolvInfo = maybe (DNS.RCHostName hostname) (\p -> DNS.RCHostPort hostname p) mport
     resolvConf :: DNS.ResolvConf
-    resolvConf = let r1 = DNS.defaultResolvConf
+    resolvConf = let r1 = DNS.defaultResolvConf { DNS.resolvInfo = DNS.RCHostName "8.8.8.8" }
                      r2 = maybe r1 (\(Seconds to) -> r1 { DNS.resolvTimeout = (fromIntegral to) * 3000 * 3000 }) mto
                  in maybe r2 (\r  -> r2 { DNS.resolvRetry = r }) mr
 
@@ -276,6 +276,6 @@ makeResolvSeedSafe mfqdn mport mto mr = do
         Left  _  -> DNS.makeResolvSeed resolvConf
   where
     resolvConf :: DNS.ResolvConf
-    resolvConf = let r1 = DNS.defaultResolvConf
+    resolvConf = let r1 = DNS.defaultResolvConf { DNS.resolvInfo = DNS.RCHostName "8.8.8.8" }
                      r2 = maybe r1 (\(Seconds to) -> r1 { DNS.resolvTimeout = (fromIntegral to) * 3000 * 3000 }) mto
                  in maybe r2 (\r  -> r2 { DNS.resolvRetry = r }) mr
