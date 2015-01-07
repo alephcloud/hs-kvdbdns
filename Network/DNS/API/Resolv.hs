@@ -127,8 +127,10 @@ makeResolvSeedSafe :: Maybe ByteString -- ^ the DNS Server to contact (Domain Na
                    -> Maybe Seconds    -- ^ timeout
                    -> Maybe Int        -- ^ retry
                    -> DnsIO DNS.ResolvSeed
-makeResolvSeedSafe mfqdn mport mto mr = do
-    attemptToContactAGlobalResolver <|> attemptToContactTheDefaultResolvers
+makeResolvSeedSafe mfqdn mport mto mr =
+    case mfqdn of
+        Nothing   -> attemptToContactTheDefaultResolvers
+        Just fqdn -> attemptToContactAGlobalResolver fqdn <|> attemptToContactTheDefaultResolvers
   where
     attemptToContactTheDefaultResolvers :: DnsIO DNS.ResolvSeed
     attemptToContactTheDefaultResolvers =
@@ -137,14 +139,9 @@ makeResolvSeedSafe mfqdn mport mto mr = do
             , resolvConf { DNS.resolvInfo = DNS.RCHostName "8.8.8.8" }
             ]
 
-    attemptToContactAGlobalResolver :: DnsIO DNS.ResolvSeed
-    attemptToContactAGlobalResolver =
-        maybe (pureDns $ errorDns $ errorMsg "no Domain Name provided, fall back to the local resolv configuration")
-              (\fqdn -> (contactDNSResolverAt (BC.unpack fqdn) mport mto mr) <|> (contactDNSResolver fqdn mport mto mr))
-              mfqdn
-
-    errorMsg :: String -> String
-    errorMsg str = "Network.DNS.API.Client.makeResolvSeedSafe: " ++ str
+    attemptToContactAGlobalResolver :: ByteString -> DnsIO DNS.ResolvSeed
+    attemptToContactAGlobalResolver fqdn =
+              ((contactDNSResolverAt (BC.unpack fqdn) mport mto mr) <|> (contactDNSResolver fqdn mport mto mr))
 
     resolvConf :: DNS.ResolvConf
     resolvConf = let r1 = DNS.defaultResolvConf
