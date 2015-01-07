@@ -8,6 +8,7 @@
 -- Portability : unknown
 --
 {-# LANGUAGE OverloadedStrings #-}
+import Control.Applicative
 import System.Environment
 import Network.DNS.API.Client
 import Network.DNS.API.Types
@@ -36,7 +37,7 @@ queryDNSGlobal g d c p = do
     let domBs = BS.pack g
     let dom = either (\err -> error $ "the given domain address is not a valid FQDN: " ++ err)
                      (id) $ execDns $ validateFQDN $ BS.pack d
-    rs <- makeResolvSeedSafe (Just domBs) (Just $ fromIntegral 8053) Nothing Nothing
+    rs <- either error id <$> (execDnsIO $ makeResolvSeedSafe (Just domBs) (Just $ fromIntegral 8053) Nothing Nothing)
     rep <- execDnsIO $ sendQueryTo rs req dom :: IO (Either String Return)
     case rep of
         Left err -> error $ "exmaple.Client: " ++ err

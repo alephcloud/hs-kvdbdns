@@ -28,6 +28,7 @@ library
                      , Network.DNS.API.Packer
                      , Network.DNS.API.Error
                      , Network.DNS.API.FQDN
+                     , Network.DNS.API.Resolv
                      , Network.DNS.API.Types
                      , Network.DNS.API.Utils
 
