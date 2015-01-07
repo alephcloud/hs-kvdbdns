@@ -151,7 +151,7 @@ sendQueryType :: Packable request
               -> ValidFQDN
               -> DnsIO [DNS.RDATA]
 sendQueryType t req dom = do
-    rs <- liftIO $ makeResolvSeedSafe Nothing Nothing Nothing Nothing
+    rs <- makeResolvSeedSafe Nothing Nothing Nothing Nothing
     sendQueryToType t rs req dom
 
 -- | Parse the response
@@ -190,7 +190,7 @@ sendQuery :: (Packable response, Packable request)
           -> ValidFQDN
           -> DnsIO response
 sendQuery req dom = do
-    rs <- liftIO $ makeResolvSeedSafe Nothing Nothing Nothing Nothing
+    rs <- makeResolvSeedSafe Nothing Nothing Nothing Nothing
     rep <- sendQueryToType DNS.TXT rs req dom
     ret <- pureDns $ parseQueryTXT rep
     pureDns $ unpackData ret
@@ -264,21 +264,28 @@ contactDNSResolverAt hostname mport mto mr =
 -- If still not found, we will then fall back to the default DNS Resolver
 -- (/etc/resolv.conf in linux/mac).
 --
--- This function raises an exception in case the last attempt failed
+-- If it still fails, then fall back to a more generic DNS configuration by contacting NS Resolver at address 8.8.8.8
 makeResolvSeedSafe :: Maybe ByteString -- ^ the DNS Server to contact (Domain Name, IPv4 or IPv6)
                    -> Maybe PortNumber -- ^ port number (useless without the DNS Server to contact)
                    -> Maybe Seconds    -- ^ timeout
                    -> Maybe Int        -- ^ retry
-                   -> IO DNS.ResolvSeed
+                   -> DnsIO DNS.ResolvSeed
 makeResolvSeedSafe mfqdn mport mto mr = do
-    mrs <- maybe (return $ Left $ errorMsg "no Domain Name provided, fall back to the local resolv configuration")
-                 (\fqdn -> execDnsIO $ (contactDNSResolverAt (BC.unpack fqdn) mport mto mr) <|> (contactDNSResolver fqdn mport mto mr))
-                 mfqdn
-    case mrs of
-        Right rs -> return rs
-        Left  _  ->
-            either error id <$> (execDnsIO $ getFirstResolvSeed [resolvConf, resolvConf { DNS.resolvInfo = DNS.RCHostName "8.8.8.8" } ])
+    attemptToContactAGlobalResolver <|> attemptToContactTheDefaultResolvers
   where
+    attemptToContactTheDefaultResolvers :: DnsIO DNS.ResolvSeed
+    attemptToContactTheDefaultResolvers =
+        getFirstResolvSeed
+            [ resolvConf
+            , resolvConf { DNS.resolvInfo = DNS.RCHostName "8.8.8.8" }
+            ]
+
+    attemptToContactAGlobalResolver :: DnsIO DNS.ResolvSeed
+    attemptToContactAGlobalResolver =
+        maybe (pureDns $ errorDns $ errorMsg "no Domain Name provided, fall back to the local resolv configuration")
+              (\fqdn -> (contactDNSResolverAt (BC.unpack fqdn) mport mto mr) <|> (contactDNSResolver fqdn mport mto mr))
+              mfqdn
+
     errorMsg :: String -> String
     errorMsg str = "Network.DNS.API.Client.makeResolvSeedSafe: " ++ str
 
