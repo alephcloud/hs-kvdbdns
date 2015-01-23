@@ -27,7 +27,20 @@ module Network.DNS.API.Bind.Types
     , BindingCNAME
     , BindingDNAME
       -- * Option bindings
+      -- ** Token and Options
+    , Token(..)
     , Opts
+    , CommandScope(..)
+    , CommandLine(..)
+    , getCommandName
+      -- ** Error handling
+    , TokenError(..)
+    , printTokenError
+      -- ** CommandLine helpers
+    , withCommandLineValues
+    , withCommandLineValues'
+      -- ** Options helpers
+    , toListOpts
     , emptyOpts
     , insertOpts
     , withSafeOpt
@@ -38,9 +51,11 @@ import           Data.ByteString (ByteString)
 import           Data.IP (IPv4, IPv6)
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Network.DNS.Types (TYPE(..))
 import           Network.DNS.API.Connection
 import           Network.DNS.API.Error
 import           Network.DNS.API.FQDN
+import           Text.Read
 
 -------------------------------------------------------------------------------
 --                              Binding                                      --
@@ -63,20 +78,78 @@ type BindingDNAME  = BindingFunction [ValidFQDN]
 --                              Binding options                              --
 -------------------------------------------------------------------------------
 
-newtype Opts = Opts
-    { getOpts :: Map String String
+toListOpts :: Opts -> [(String, Token String)]
+toListOpts = Map.toList . getOpts
+
+data Token value = Token
+    { tokenLine   :: Int
+    , tokenColumn :: Int
+    , tokenValue  :: value
+    } deriving (Show, Eq, Ord)
+
+data TokenError value = TokenError
+    { failedToken :: Token value
+    , failedMessage :: String
     } deriving (Show, Eq)
 
-insertOpts :: String -> String -> Opts -> Opts
+-- | This is a little helper to print a Token Error
+-- This could be use for debug/error printing purpose
+printTokenError :: Show value => TokenError value -> String
+printTokenError te =
+    prefixMsg ++ " " ++ (failedMessage te) ++ " in the context of: " ++ (show $ tokenValue token)
+  where
+    token = failedToken te
+    prefixMsg = "line(" ++ (show $ tokenLine token) ++ ") column(" ++ (show $ tokenColumn token) ++ ")"
+
+data CommandScope = CommandScope
+    { getCommandScopeName :: Token String
+    , getCommandLines     :: [CommandLine]
+    , getCommandSubScope  :: [CommandScope]
+    } deriving (Show, Eq)
+
+getCommandName :: CommandScope -> String
+getCommandName scope = tokenValue $ getCommandScopeName scope
+
+data CommandLine = CommandLine
+    { getCommandLineType    :: Token TYPE
+    , getCommandLineFQDN    :: Token ValidFQDN
+    , getCommandLineOthers  :: [Token String]
+    , getCommandLineOptions :: Opts
+    } deriving (Show, Eq)
+
+withCommandLineValues :: CommandLine
+                      -> ([String] -> a)
+                      -> a
+withCommandLineValues cmdl f =
+    f (map tokenValue $ getCommandLineOthers cmdl)
+
+withCommandLineValues' :: (Read value)
+                       => CommandLine
+                       -> (Either (TokenError String) [value] -> a)
+                       -> a
+withCommandLineValues' cmdl f =
+    f (mapM tokenReadEither $ getCommandLineOthers cmdl)
+  where
+    tokenReadEither t =
+        case readEither $ tokenValue t of
+            Left err -> Left (TokenError t err)
+            Right v  -> Right v
+
+newtype Opts = Opts
+    { getOpts :: Map String (Token String)
+    } deriving (Show, Eq)
+
+insertOpts :: String -> Token String -> Opts -> Opts
 insertOpts k v m = Opts $ Map.insert k v (getOpts m)
 
 emptyOpts :: Opts
 emptyOpts = Opts Map.empty
 
-withSafeOpt :: Opts -> String -> (Maybe String -> a) -> a
-withSafeOpt opts k f = f $ Map.lookup k $ getOpts opts
+withSafeOpt :: Opts -> String -> (Maybe (Token String) -> a) -> a
+withSafeOpt opts k f =
+    f $ Map.lookup k $ getOpts opts
 
-withUnsafeOpt :: Opts -> String -> (String -> a) -> a
+withUnsafeOpt :: Opts -> String -> (Token String -> a) -> a
 withUnsafeOpt opts k f =
     case Map.lookup k $ getOpts opts of
         Nothing -> error $ "Network.DNS.API.Bind: expected options: " ++ k

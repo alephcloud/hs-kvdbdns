@@ -148,7 +148,7 @@ handleRequest conf conn req = do
     handleRequestTXT :: BindingsTXT -> ValidFQDN -> IO DNSFormat
     handleRequestTXT b fqdn = do
         case execDns $ findBinding fqdn b of
-            Left _err             -> return $ failError req
+            Left  _err            -> return $ failError req
             Right (action, param) -> do
                 mres <- execDnsIO $ bindingFunction action conn param
                 return $ case mres of

@@ -42,21 +42,22 @@ main = do
     case args of
         ["--bind",f] -> do
             sl <- getDefaultConnections (Just "8053") (Seconds 3) Nothing
-            list <- either error id <$> parseBindFile f
+            configfile <- either error id <$> parseBindFile f
             -- Force the resolution of the Chunks in order to get the error message now
             --
             -- If an error occured during parsing the file, we want to know what was this
             -- error before starting the server
-            let (list', !bindings) = insertDNSBindings ExampleBinding
-                                   $ insertDNSBindings DefaultBinding
-                                   $ (list, emptyDNSBindings)
-            when (not $ null list') $ error ("the given bindings haren't assigned: " ++ show list')
+            let !(!list', !bindings) = either error id $ execDns
+                    $ insertDNSBindings ExampleBinding
+                    $ insertDNSBindings DefaultBinding
+                    $ return (configfile, emptyDNSBindings)
             defaultServer (createServerConf bindings) sl
         _ -> putStrLn $ "usage: " ++ name ++ " --bind <filepath>"
 
 data ExampleBinding = ExampleBinding
 instance Binding ExampleBinding where
-    getName _ = "example"
+    getName _ = ["example"]
+    getHelp _ = []
 
     getA     = notImplementedBinding
     getAAAA  = notImplementedBinding
@@ -93,7 +94,7 @@ queryDummy :: Connection a
            -> DnsIO [ByteString]
 queryDummy conn req = do
     let eReq = execDns $ decodeFQDNEncoded req :: Either String Command
-    liftIO $ print $ "Connection: " ++ (show $ getSockAddr conn) ++ " opened: " ++ (show $ getCreationDate conn)
+    liftIO $ putStrLn $ "Connection: " ++ (show $ getSockAddr conn) ++ " opened: " ++ (show $ getCreationDate conn) ++ " request: " ++ show req
     pureDns $ case eReq of
         Left err -> errorDns err
         Right r  -> do

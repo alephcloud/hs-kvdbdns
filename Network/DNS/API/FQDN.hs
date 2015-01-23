@@ -32,6 +32,7 @@ module Network.DNS.API.FQDN
       -- * Valid FQDN
     , ValidFQDN
     , validateFQDN
+    , validateFQDNEither
     , unsafeValidFQDN
     ) where
 
@@ -177,6 +178,11 @@ instance FQDN ValidFQDN where
 -- Which will provides security validations
 unsafeValidFQDN :: FQDN fqdn => fqdn -> ValidFQDN
 unsafeValidFQDN = ValidFQDN . toBytes
+
+validateFQDNEither :: FQDN unsafe
+                   => unsafe
+                   -> Either String ValidFQDN
+validateFQDNEither = execDns . validateFQDN
 
 -- | Validate a FQDN into a ValidFQDN
 --

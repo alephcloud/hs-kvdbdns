@@ -26,7 +26,10 @@ module Network.DNS.API.Bind
     , DefaultBinding(..)
 
       -- * Bind Configuration
-    , BindingLine
+    , CommandScope(..)
+    , CommandLine(..)
+    , Token(..)
+    , TokenError(..)
     , parseBindFile
 
       -- * Write your own extension
@@ -66,6 +69,7 @@ module Network.DNS.API.Bind
 
 import           Data.ByteString (ByteString)
 import           Data.IP (IPv4, IPv6)
+import           Data.List
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Network.DNS (TYPE(..))
@@ -102,82 +106,131 @@ emptyDNSBindings = DNSBindings
     , bindingsDNAME = emptyBindings
     }
 
--- | This is the function to use to create a the DNSBindings object
+-- | This is the function wich will lookup given Binding in the configuration file
+-- if the Binding has been enable and configured properly
 --
--- This function will insert every BindingLine in the given DNSBindings
--- and will return the same tuple but the list will be return without the added
--- Binding in the DNSBindings
---
--- example:
--- > list <- parseBindFile "bind.conf"
--- > let (l', bindings) = insertDNSBindings MyCustomBinding
--- >                    $ insertDNSBindings DefaultBinding
--- >                    $ (list, emptyDNSBindings)
--- > when (not . null l') $ error $ "the given bindings haren't assigned: " ++ show l'
-insertDNSBindings :: Binding binding => binding -> ([BindingLine], DNSBindings) -> ([BindingLine], DNSBindings)
-insertDNSBindings binding (l, db) = foldr insertB ([], db) l
+-- If the binding has no scope, then we suppose this is a Default Binding for this
+-- application and we parse the Binding lines
+insertDNSBindings :: Binding binding
+                  => binding -- ^ The binding to add
+                  -> Dns (CommandScope, DNSBindings) -- ^ The scope and the binding to add
+                  -> Dns (CommandScope, DNSBindings) -- ^ The scope and the updated binding
+insertDNSBindings binding getInitialState = do
+    (scope, db) <- getInitialState
+    case scopeList of
+        -- In the case we are parsing the default Commands
+        [] -> do
+            db' <- insertDNSBindingsInScope binding scope db
+            return (scope, db')
+        -- Else, we go to insert the bindings in a appropriate scope
+        _  -> do
+            db' <- insertDNSBindingsRecursiveScope scopeList binding scope db
+            return (scope, db')
   where
-    name :: String
-    name = getName binding
+    scopeList :: [String]
+    scopeList = getName binding
 
-    insertB :: BindingLine -> ([BindingLine], DNSBindings) -> ([BindingLine], DNSBindings)
-    insertB b (accList, accDB)
-        | name /= (getLineCommand b) = (b:accList, accDB)
-        | otherwise                  = (accList, insertDNSDBFilter binding b accDB)
+insertDNSBindingsRecursiveScope :: Binding binding
+                                => [String]
+                                -> binding
+                                -> CommandScope
+                                -> DNSBindings
+                                -> Dns DNSBindings
+insertDNSBindingsRecursiveScope scopeList binding scope db =
+    case scopeList of
+        -- This means the Binding hasn't been configured in the Binding File
+        []     -> return db
+        -- Look up for the exact scope
+        [x]    ->
+            case find (\n -> x == getCommandName n) $ getCommandSubScope scope of
+                -- This means the Binding file hasn't been configured in the scope
+                Nothing -> return db
+                -- This means the scope is present and we need to insert it in
+                Just v  -> do
+                    -- update the binding data base
+                    db' <- insertDNSBindingsInScope binding v db
+                    -- return the binding data base
+                    return db'
+        -- In this case we need to lookup into the command scope to get the actual present binding
+        (x:xs) ->
+            case find (\n -> x == getCommandName n) $ getCommandSubScope scope of
+                -- This means the Binding file hasn't been configured in the scope
+                Nothing -> return db
+                -- Look up in the sub scope of the found command scope
+                Just v  -> insertDNSBindingsRecursiveScope xs binding v db
 
-insertDNSDBFilter :: Binding binding => binding -> BindingLine -> DNSBindings -> DNSBindings
-insertDNSDBFilter binding bl dnsbs =
-    case getLineType bl of
-        A     -> insertDNSBindingA binding bl dnsbs
-        AAAA  -> insertDNSBindingAAAA binding bl dnsbs
-        TXT   -> insertDNSBindingTXT binding bl dnsbs
-        PTR   -> insertDNSBindingPTR binding bl dnsbs
-        NS    -> insertDNSBindingNS binding bl dnsbs
-        CNAME -> insertDNSBindingCNAME binding bl dnsbs 
-        DNAME -> insertDNSBindingDNAME binding bl dnsbs 
-        t     -> error $ "Type: " ++ show t ++ " not supported yet"
+-- | At this stage we already trust the given binding is configured in this
+-- scope. This stage will get all the given bindings and insert them in the
+-- DNSBindings.
+insertDNSBindingsInScope :: Binding binding
+                         => binding
+                         -> CommandScope
+                         -> DNSBindings
+                         -> Dns DNSBindings
+insertDNSBindingsInScope binding scope db =
+    insertDNSBindingsCommandLines binding (getCommandLines scope) db
 
-insertDNSBindingA :: Binding binding => binding -> BindingLine -> DNSBindings -> DNSBindings
-insertDNSBindingA binding bl dnsbs =
-    case execDns $ getA binding (getLineOptions bl) of
-        Left err   -> error $ (show bl) ++ ": reported error: " ++ err
-        Right func -> dnsbs { bindingsA = insertBinding (getLineFQDN bl) func (bindingsA dnsbs) }
+insertDNSBindingsCommandLines :: Binding binding
+                              => binding
+                              -> [CommandLine]
+                              -> DNSBindings
+                              -> Dns DNSBindings
+insertDNSBindingsCommandLines _       []     db = return db
+insertDNSBindingsCommandLines binding (x:xs) db = do
+    db' <- insertDNSDBFilter binding x db
+    insertDNSBindingsCommandLines binding xs db'
 
-insertDNSBindingAAAA :: Binding binding => binding -> BindingLine -> DNSBindings -> DNSBindings
-insertDNSBindingAAAA binding bl dnsbs =
-    case execDns $ getAAAA binding (getLineOptions bl) of
-        Left err   -> error $ (show bl) ++ ": reported error: " ++ err
-        Right func -> dnsbs { bindingsAAAA = insertBinding (getLineFQDN bl) func (bindingsAAAA dnsbs) }
+insertDNSDBFilter :: Binding binding => binding -> CommandLine -> DNSBindings -> Dns DNSBindings
+insertDNSDBFilter binding cl dnsbs =
+    case getLineType of
+        A     -> insertDNSBindingA     binding cl dnsbs
+        AAAA  -> insertDNSBindingAAAA  binding cl dnsbs
+        TXT   -> insertDNSBindingTXT   binding cl dnsbs
+        PTR   -> insertDNSBindingPTR   binding cl dnsbs
+        NS    -> insertDNSBindingNS    binding cl dnsbs
+        CNAME -> insertDNSBindingCNAME binding cl dnsbs
+        DNAME -> insertDNSBindingDNAME binding cl dnsbs
+        _     -> errorDns $ printTokenError $ TokenError linetype "This type is not yet supported by the system"
+  where
+    getLineType :: TYPE
+    getLineType = tokenValue linetype
+    linetype :: Token TYPE
+    linetype = getCommandLineType cl
 
-insertDNSBindingTXT :: Binding binding => binding -> BindingLine -> DNSBindings -> DNSBindings
-insertDNSBindingTXT binding bl dnsbs =
-    case execDns $ getTXT binding (getLineOptions bl) of
-        Left err   -> error $ (show bl) ++ ": reported error: " ++ err
-        Right func -> dnsbs { bindingsTXT = insertBinding (getLineFQDN bl) func (bindingsTXT dnsbs) }
+insertDNSBindingA :: Binding binding => binding -> CommandLine -> DNSBindings -> Dns DNSBindings
+insertDNSBindingA binding cl dnsbs = do
+    f <- getA binding cl
+    return $ dnsbs { bindingsA = insertBinding (tokenValue $ getCommandLineFQDN cl) f (bindingsA dnsbs) }
 
-insertDNSBindingPTR :: Binding binding => binding -> BindingLine -> DNSBindings -> DNSBindings
-insertDNSBindingPTR binding bl dnsbs =
-    case execDns $ getPTR binding (getLineOptions bl) of
-        Left err   -> error $ (show bl) ++ ": reported error: " ++ err
-        Right func -> dnsbs { bindingsPTR = insertBinding (getLineFQDN bl) func (bindingsPTR dnsbs) }
+insertDNSBindingAAAA :: Binding binding => binding -> CommandLine -> DNSBindings -> Dns DNSBindings
+insertDNSBindingAAAA binding cl dnsbs = do
+    f <- getAAAA binding cl
+    return $ dnsbs { bindingsAAAA = insertBinding (tokenValue $ getCommandLineFQDN cl) f (bindingsAAAA dnsbs) }
 
-insertDNSBindingNS :: Binding binding => binding -> BindingLine -> DNSBindings -> DNSBindings
-insertDNSBindingNS binding bl dnsbs =
-    case execDns $ getNS binding (getLineOptions bl) of
-        Left err   -> error $ (show bl) ++ ": reported error: " ++ err
-        Right func -> dnsbs { bindingsNS = insertBinding (getLineFQDN bl) func (bindingsNS dnsbs) }
+insertDNSBindingTXT :: Binding binding => binding -> CommandLine -> DNSBindings -> Dns DNSBindings
+insertDNSBindingTXT binding cl dnsbs = do
+    f <- getTXT binding cl
+    return $ dnsbs { bindingsTXT = insertBinding (tokenValue $ getCommandLineFQDN cl) f (bindingsTXT dnsbs) }
 
-insertDNSBindingCNAME :: Binding binding => binding -> BindingLine -> DNSBindings -> DNSBindings
-insertDNSBindingCNAME binding bl dnsbs =
-    case execDns $ getCNAME binding (getLineOptions bl) of
-        Left err   -> error $ (show bl) ++ ": reported error: " ++ err
-        Right func -> dnsbs { bindingsCNAME = insertBinding (getLineFQDN bl) func (bindingsCNAME dnsbs) }
+insertDNSBindingPTR :: Binding binding => binding -> CommandLine -> DNSBindings -> Dns DNSBindings
+insertDNSBindingPTR binding cl dnsbs = do
+    f <- getPTR binding cl
+    return $ dnsbs { bindingsPTR = insertBinding (tokenValue $ getCommandLineFQDN cl) f (bindingsPTR dnsbs) }
 
-insertDNSBindingDNAME :: Binding binding => binding -> BindingLine -> DNSBindings -> DNSBindings
-insertDNSBindingDNAME binding bl dnsbs =
-    case execDns $ getDNAME binding (getLineOptions bl) of
-        Left err   -> error $ (show bl) ++ ": reported error: " ++ err
-        Right func -> dnsbs { bindingsDNAME = insertBinding (getLineFQDN bl) func (bindingsDNAME dnsbs) }
+insertDNSBindingNS :: Binding binding => binding -> CommandLine -> DNSBindings -> Dns DNSBindings
+insertDNSBindingNS binding cl dnsbs = do
+    f <- getNS binding cl
+    return $ dnsbs { bindingsNS = insertBinding (tokenValue $ getCommandLineFQDN cl) f (bindingsNS dnsbs) }
+
+insertDNSBindingCNAME :: Binding binding => binding -> CommandLine -> DNSBindings -> Dns DNSBindings
+insertDNSBindingCNAME binding cl dnsbs = do
+    f <- getCNAME binding cl
+    return $ dnsbs { bindingsCNAME = insertBinding (tokenValue $ getCommandLineFQDN cl) f (bindingsCNAME dnsbs) }
+
+insertDNSBindingDNAME :: Binding binding => binding -> CommandLine -> DNSBindings -> Dns DNSBindings
+insertDNSBindingDNAME binding cl dnsbs = do
+    f <- getDNAME binding cl
+    return $ dnsbs { bindingsDNAME = insertBinding (tokenValue $ getCommandLineFQDN cl) f (bindingsDNAME dnsbs) }
 
 -------------------------------------------------------------------------------
 --                              Generic bindings                             --
