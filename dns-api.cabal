@@ -37,8 +37,6 @@ library
                      , Network.DNS.API.Bind.Parser
                      , Network.DNS.API.Bind.Types
 
-  other-modules:       Data.String.Parse
-
   build-depends:       base >=4.7 && <4.8
                      , containers
                      , network
