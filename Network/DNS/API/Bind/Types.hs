@@ -16,9 +16,17 @@
 -- License for the specific language governing permissions and limitations
 -- under the License.
 --
+
 {-# LANGUAGE RankNTypes #-}
+
 module Network.DNS.API.Bind.Types
-    ( BindingFunction(..)
+    ( -- * BindingFunction
+
+      -- ** Definition
+
+      BindingFunction(..)
+
+      -- ** Alias
     , BindingA
     , BindingAAAA
     , BindingTXT
@@ -26,20 +34,33 @@ module Network.DNS.API.Bind.Types
     , BindingNS
     , BindingCNAME
     , BindingDNAME
-      -- * Option bindings
-      -- ** Token and Options
+    , BindingMX
+    , BindingSOA
+    , BindingSRV
+
+      -- * Binding Command
+
+      -- ** Token
+
     , Token(..)
-    , Opts
+    , TokenError(..)
+    , printTokenError
+    , commandParsingError
+
+      -- ** Command
+
     , CommandScope(..)
     , CommandLine(..)
     , getCommandName
-      -- ** Error handling
-    , TokenError(..)
-    , printTokenError
+
       -- ** CommandLine helpers
+
     , withCommandLineFlags
     , withCommandLineFlags'
-      -- ** Options helpers
+
+      -- ** Options
+
+    , Opts
     , toListOpts
     , emptyOpts
     , insertOpts
@@ -72,21 +93,41 @@ type BindingPTR    = BindingFunction [ValidFQDN]
 type BindingNS     = BindingFunction [ValidFQDN]
 type BindingCNAME  = BindingFunction [ValidFQDN]
 type BindingDNAME  = BindingFunction [ValidFQDN]
+type BindingMX     = BindingFunction [(Int, ValidFQDN)]
+type BindingSOA    = BindingFunction [(ValidFQDN, ValidFQDN, Int, Int, Int, Int, Int)]
+type BindingSRV    = BindingFunction [(Int, Int, Int, ValidFQDN)]
 
 -------------------------------------------------------------------------------
 --                              Binding options                              --
 -------------------------------------------------------------------------------
 
+-- | a Wrapper for all the values read from the configuration
+--
+-- It embeds all the general information needed for debuging or to provide
+-- a meaning error message (line/columns).
 data Token value = Token
     { tokenLine   :: Int
     , tokenColumn :: Int
     , tokenValue  :: value
     } deriving (Show, Eq, Ord)
 
+-- | An error wrapper
+-- Mainly use in the Parser/Class to provide default error message formating
+-- (a Token with its value and an error messasge)
 data TokenError value = TokenError
     { failedToken :: Token value
     , failedMessage :: String
     } deriving (Show, Eq)
+
+-- | Helper to formate a clean error in the case of Command Line parsing
+--
+-- This can be use in your Binding's getter functions while parsing the
+-- command line to show clean and meaningful information about the error
+commandParsingError :: CommandLine -- ^ The related command line
+                    -> String      -- ^ The error message to print along the Parsing error
+                    -> Dns a       -- ^ Always return the generated error message
+commandParsingError cmdl errorMessage =
+    errorDns $ printTokenError (TokenError (getCommandLineType cmdl) errorMessage)
 
 -- | This is a little helper to print a Token Error
 -- This could be use for debug/error printing purpose

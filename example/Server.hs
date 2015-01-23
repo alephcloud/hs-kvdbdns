@@ -65,6 +65,9 @@ instance Binding ExampleBinding where
     getDNAME = notSupportedBinding
     getPTR   = notSupportedBinding
     getNS    = notSupportedBinding
+    getMX    = notSupportedBinding
+    getSRV   = notSupportedBinding
+    getSOA   = notSupportedBinding
     getTXT   _ _ = return $ BindingFunction queryDummy
 
 ------------------------------------------------------------------------------

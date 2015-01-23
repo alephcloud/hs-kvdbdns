@@ -43,6 +43,9 @@ module Network.DNS.API.Bind
     , BindingNS
     , BindingCNAME
     , BindingDNAME
+    , BindingMX
+    , BindingSOA
+    , BindingSRV
       -- *** The default error message
     , notImplementedBinding
     , notSupportedBinding
@@ -64,6 +67,9 @@ module Network.DNS.API.Bind
     , BindingsNS
     , BindingsCNAME
     , BindingsDNAME
+    , BindingsMX
+    , BindingsSOA
+    , BindingsSRV
     , emptyBindings
     , insertBinding
     , findBinding
@@ -95,6 +101,9 @@ data DNSBindings = DNSBindings
     , bindingsNS    :: BindingsNS
     , bindingsCNAME :: BindingsCNAME
     , bindingsDNAME :: BindingsDNAME
+    , bindingsMX    :: BindingsMX
+    , bindingsSOA   :: BindingsSOA
+    , bindingsSRV   :: BindingsSRV
     } deriving (Show)
 
 emptyDNSBindings :: DNSBindings
@@ -106,6 +115,9 @@ emptyDNSBindings = DNSBindings
     , bindingsNS    = emptyBindings
     , bindingsCNAME = emptyBindings
     , bindingsDNAME = emptyBindings
+    , bindingsMX    = emptyBindings
+    , bindingsSOA   = emptyBindings
+    , bindingsSRV   = emptyBindings
     }
 
 -- | This is the function wich will lookup given Binding in the configuration file
@@ -192,6 +204,9 @@ insertDNSDBFilter binding cl dnsbs =
         NS    -> insertDNSBindingNS    binding cl dnsbs
         CNAME -> insertDNSBindingCNAME binding cl dnsbs
         DNAME -> insertDNSBindingDNAME binding cl dnsbs
+        MX    -> insertDNSBindingMX    binding cl dnsbs
+        SOA   -> insertDNSBindingSOA   binding cl dnsbs
+        SRV   -> insertDNSBindingSRV   binding cl dnsbs
         _     -> errorDns $ printTokenError $ TokenError linetype "This type is not yet supported by the system"
   where
     getLineType :: TYPE
@@ -234,6 +249,21 @@ insertDNSBindingDNAME binding cl dnsbs = do
     f <- getDNAME binding cl
     return $ dnsbs { bindingsDNAME = insertBinding (tokenValue $ getCommandLineFQDN cl) f (bindingsDNAME dnsbs) }
 
+insertDNSBindingMX :: Binding binding => binding -> CommandLine -> DNSBindings -> Dns DNSBindings
+insertDNSBindingMX binding cl dnsbs = do
+    f <- getMX binding cl
+    return $ dnsbs { bindingsMX = insertBinding (tokenValue $ getCommandLineFQDN cl) f (bindingsMX dnsbs) }
+
+insertDNSBindingSOA :: Binding binding => binding -> CommandLine -> DNSBindings -> Dns DNSBindings
+insertDNSBindingSOA binding cl dnsbs = do
+    f <- getSOA binding cl
+    return $ dnsbs { bindingsSOA = insertBinding (tokenValue $ getCommandLineFQDN cl) f (bindingsSOA dnsbs) }
+
+insertDNSBindingSRV :: Binding binding => binding -> CommandLine -> DNSBindings -> Dns DNSBindings
+insertDNSBindingSRV binding cl dnsbs = do
+    f <- getSRV binding cl
+    return $ dnsbs { bindingsSRV = insertBinding (tokenValue $ getCommandLineFQDN cl) f (bindingsSRV dnsbs) }
+
 -------------------------------------------------------------------------------
 --                              Generic bindings                             --
 -------------------------------------------------------------------------------
@@ -256,6 +286,9 @@ type BindingsPTR    = Bindings [ValidFQDN]
 type BindingsNS     = Bindings [ValidFQDN]
 type BindingsCNAME  = Bindings [ValidFQDN]
 type BindingsDNAME  = Bindings [ValidFQDN]
+type BindingsMX     = Bindings [(Int, ValidFQDN)]
+type BindingsSOA    = Bindings [(ValidFQDN, ValidFQDN, Int, Int, Int, Int, Int)]
+type BindingsSRV    = Bindings [(Int, Int, Int, ValidFQDN)]
 
 
 emptyBindings :: Bindings value

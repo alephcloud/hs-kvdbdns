@@ -28,6 +28,7 @@ module Network.DNS.API.Bind.Class
     , DefaultBinding(..)
     ) where
 
+import           Control.Applicative
 import           Control.Monad
 import           Data.Byteable
 import           Data.ByteString (ByteString)
@@ -83,16 +84,9 @@ class Binding binding where
     getNS     :: binding -> CommandLine -> Dns BindingNS
     getCNAME  :: binding -> CommandLine -> Dns BindingCNAME
     getDNAME  :: binding -> CommandLine -> Dns BindingDNAME
-
--- | Helper to formate a clean error in the case of Command Line parsing
---
--- This can be use in your Binding's getter functions while parsing the
--- command line to show clean and meaningful information about the error
-commandParsingError :: CommandLine -- ^ The related command line
-                    -> String      -- ^ The error message to print along the Parsing error
-                    -> Dns a       -- ^ Always return the generated error message
-commandParsingError cmdl errorMessage =
-    errorDns $ printTokenError (TokenError (getCommandLineType cmdl) errorMessage)
+    getMX     :: binding -> CommandLine -> Dns BindingMX
+    getSOA    :: binding -> CommandLine -> Dns BindingSOA
+    getSRV    :: binding -> CommandLine -> Dns BindingSRV
 
 -- | In case you don't want to implement an interface you can provide this function
 -- This function can be use to fill the DNS records type you may not want to use/enable
@@ -120,19 +114,6 @@ notSupportedBinding binding cmdl =
 -- This is in order to not have to "scope" its commands into a Command scope
 --
 -- The default Bindings are Standards DNS Record Bindinds
---
--- These options allow you to define the classic, usual, DNS records.
--- Such as:
--- * A     <Domain Name> <IPv4>
--- * AAAA  <Domain Name> <IPv6>
--- * TXT   <Domain Name> <String|QuotedString> [ ' ' <String|QuotedString>]
---   * no more than 10 text messages
--- * NS    <Domain Name> <Domain Name> [ ' ' <Domain Name>]
---   * no more than 10 Domain names
--- * CNAME <Domain Name> <Domain Name>
--- * DNAME <Domain Name> <Domain Name>
--- * PTR   <Domain Name> <Domain Name>
---
 data DefaultBinding = DefaultBinding
     deriving (Show, Eq)
 
@@ -149,6 +130,9 @@ instance Binding DefaultBinding where
                 , "* CNAME <Domain Name> <Domain Name>"
                 , "* DNAME <Domain Name> <Domain Name>"
                 , "* PTR   <Domain Name> <Domain Name>"
+                , "* MX    <Domain Name> <int> <Domain Name> [ ' ' <int> <Domain Name>]"
+                , "* SRV   <Domain Name> <int> <int> <int> <Domain Name>"
+                , "* SOA   <Domain Name> <Domain Name> <Domain Name> <int> <int> <int> <int> <int>"
                 ]
 
     getA _ cmdl =
@@ -156,7 +140,7 @@ instance Binding DefaultBinding where
             case l of
                 []        -> commandParsingError cmdl "expecting an IPv4 for this command Line"
                 [ipv4str] -> do
-                    ip <- either (commandParsingError cmdl) return $ readEither ipv4str :: Dns IPv4
+                    ip <- readDns ipv4str cmdl :: Dns IPv4
                     return $ BindingFunction $ defaultBindingReturn [ip]
                 _ -> commandParsingError cmdl "expecting only one Value"
     getAAAA _ cmdl =
@@ -164,14 +148,38 @@ instance Binding DefaultBinding where
             case l of
                 []        -> commandParsingError cmdl "expecting an IPv6 for this command Line"
                 [ipv6str] -> do
-                    ip <- either (commandParsingError cmdl) return $ readEither ipv6str :: Dns IPv6
+                    ip <- readDns ipv6str cmdl :: Dns IPv6
                     return $ BindingFunction $ defaultBindingReturn [ip]
                 _ -> commandParsingError cmdl "expecting only one Value"
+    getSOA   _ cmdl =
+        withCommandLineFlags cmdl $ \l ->
+            case l of
+                [auth, admEmail, serialNumStr, refreshStr, retryNumStr, authTTLStr, negTTLStr] -> do
+                    authFQDN     <- validateFqdn auth cmdl
+                    admEmailFQDN <- validateFqdn admEmail cmdl
+                    serialNum    <- readDns serialNumStr cmdl
+                    refresh      <- readDns refreshStr cmdl
+                    retryNum     <- readDns retryNumStr cmdl
+                    authTTL      <- readDns authTTLStr cmdl
+                    negTTL       <- readDns negTTLStr cmdl
+                    return $ BindingFunction $ defaultBindingReturn [(authFQDN, admEmailFQDN, serialNum, refresh, retryNum, authTTL, negTTL)]
+                _ -> commandParsingError cmdl "expecting Flags: <domain> <domain> <int> <int> <int> <int> <int>"
+    getSRV   _ cmdl =
+        withCommandLineFlags cmdl $ \l ->
+            case l of
+                [priorityStr, weightStr, portStr, domainStr] -> do
+                    priorityNum <- readDns priorityStr cmdl
+                    weightNum   <- readDns weightStr cmdl
+                    portNum     <- readDns portStr cmdl
+                    domainFQDN  <- validateFqdn domainStr cmdl
+                    return $ BindingFunction $ defaultBindingReturn [(priorityNum, weightNum, portNum, domainFQDN)]
+                _ -> commandParsingError cmdl "expecting Flags: <int> <int> <int> <domain>"
     getTXT   _ cmdl = defaultBindingTXT  cmdl 1 10
     getPTR   _ cmdl = defaultBindingFQDN cmdl 1 1
     getCNAME _ cmdl = defaultBindingFQDN cmdl 1 1
     getDNAME _ cmdl = defaultBindingFQDN cmdl 1 1
     getNS    _ cmdl = defaultBindingFQDN cmdl 1 10
+    getMX    _ cmdl = defaultBindingMX   cmdl 1 10
 
 checkFQDNEmpty :: FQDN fqdn => fqdn -> Bool
 checkFQDNEmpty fqdn
@@ -193,6 +201,42 @@ defaultBindingTXT cmdl minTxt maxTxt =
         when (maxTxt < length l) $ commandParsingError cmdl ("expecting at no more than " ++ show minTxt ++ " Text message(s)")
         return $ BindingFunction $ defaultBindingReturn $ map BC.pack l
 
+defaultBindingMX :: CommandLine
+                 -> Int
+                 -> Int
+                 -> Dns (BindingFunction [(Int, ValidFQDN)])
+defaultBindingMX cmdl minMX maxMX =
+    withCommandLineFlags cmdl $ \l -> do
+        when (minMX > length l) $ commandParsingError cmdl ("expecting at least " ++ show minMX ++ " MX entry(s)")
+        when (maxMX < length l) $ commandParsingError cmdl ("expecting at no more than " ++ show minMX ++ " MX entry(s)")
+        list <- readTwoByTwo l
+        return $ BindingFunction $ defaultBindingReturn list
+  where
+    readTwoByTwo :: [String] -> Dns [(Int, ValidFQDN)]
+    readTwoByTwo []  = return []
+    readTwoByTwo [_] = commandParsingError cmdl "expecting Flags to run 2 by 2 (an integer and a ValidFQDN)"
+    readTwoByTwo (w:dom:xs) = do
+        weight <- readDns w cmdl
+        fqdn   <- validateFqdn dom cmdl
+        (:) (weight, fqdn) <$> readTwoByTwo xs
+
+readDns :: Read value
+        => String
+        -> CommandLine
+        -> Dns value
+readDns str cmdl =
+    case readEither str of
+        Left err -> commandParsingError cmdl ("cannot read value " ++ show str ++ ": " ++ err)
+        Right v  -> return v
+
+validateFqdn :: String
+             -> CommandLine
+             -> Dns ValidFQDN
+validateFqdn str cmdl =
+    case execDns $ validateFQDN $ BC.pack str of
+        Left err -> commandParsingError cmdl ("invalid Domain Name " ++ show str ++ ": " ++ err)
+        Right v  -> return v
+
 defaultBindingFQDN :: CommandLine
                    -> Int
                    -> Int
@@ -201,5 +245,5 @@ defaultBindingFQDN cmdl minFqdn maxFqdn =
     withCommandLineFlags cmdl $ \l -> do
         when (minFqdn > length l) $ commandParsingError cmdl ("expecting at least " ++ show minFqdn ++ " FQDN(s)")
         when (maxFqdn < length l) $ commandParsingError cmdl ("expecting at no more than " ++ show minFqdn ++ " FQDN(s)")
-        fqdns <- mapM (validateFQDN . BC.pack) l
+        fqdns <- mapM (flip validateFqdn cmdl) l
         return $ BindingFunction $ defaultBindingReturn fqdns

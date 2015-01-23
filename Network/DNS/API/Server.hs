@@ -106,6 +106,9 @@ handleRequest conf conn req = do
                     DNS.CNAME -> handleRequestFQDN DNS.CNAME (bindingsCNAME $ getBindings conf) fqdn
                     DNS.DNAME -> handleRequestFQDN DNS.DNAME (bindingsDNAME $ getBindings conf) fqdn
                     DNS.PTR   -> handleRequestFQDN DNS.PTR   (bindingsPTR   $ getBindings conf) fqdn
+                    DNS.MX    -> handleRequestMX             (bindingsMX    $ getBindings conf) fqdn
+                    DNS.SOA   -> handleRequestSOA            (bindingsSOA   $ getBindings conf) fqdn
+                    DNS.SRV   -> handleRequestSRV            (bindingsSRV   $ getBindings conf) fqdn
                     _         -> either error id <$> inFail conf req
             return $ Right $ mconcat $ SL.toChunks $ DNS.encode r
   where
@@ -124,6 +127,36 @@ handleRequest conf conn req = do
                 return $ case mres of
                     Left  _err-> failError req
                     Right dn  -> responseFQDN q ident t dn
+
+    handleRequestMX :: BindingsMX -> ValidFQDN -> IO DNSFormat
+    handleRequestMX b fqdn =
+        case execDns $ findBinding fqdn b of
+            Left _err             -> return $ failError req
+            Right (action, param) -> do
+                mres <- execDnsIO $ bindingFunction action conn param
+                return $ case mres of
+                    Left  _err-> failError req
+                    Right dn  -> responseMX q ident dn
+
+    handleRequestSOA :: BindingsSOA -> ValidFQDN -> IO DNSFormat
+    handleRequestSOA b fqdn =
+        case execDns $ findBinding fqdn b of
+            Left _err             -> return $ failError req
+            Right (action, param) -> do
+                mres <- execDnsIO $ bindingFunction action conn param
+                return $ case mres of
+                    Left  _err-> failError req
+                    Right dn  -> responseSOA q ident dn
+
+    handleRequestSRV :: BindingsSRV -> ValidFQDN -> IO DNSFormat
+    handleRequestSRV b fqdn =
+        case execDns $ findBinding fqdn b of
+            Left _err             -> return $ failError req
+            Right (action, param) -> do
+                mres <- execDnsIO $ bindingFunction action conn param
+                return $ case mres of
+                    Left  _err-> failError req
+                    Right dn  -> responseSRV q ident dn
 
     handleRequestA :: BindingsA -> ValidFQDN -> IO DNSFormat
     handleRequestA b fqdn = do
@@ -175,6 +208,7 @@ responseFQDN q ident t l =
         DNS.DNAME -> DNS.RD_DNAME $ toBytes fqdn
         DNS.PTR   -> DNS.RD_PTR   $ toBytes fqdn
         _         -> error $ "cannot build an ResponseFQDN with type: " ++ show t
+
 responseA :: Question -> Int -> [IPv4] -> DNSFormat
 responseA q ident l =
     let hd = header defaultResponse
@@ -206,6 +240,60 @@ responseTXT q ident l =
             , question = [q]
             , answer = al
             }
+
+responseMX :: Question -> Int -> [(Int, ValidFQDN)] -> DNSFormat
+responseMX q ident l =
+    let hd = header defaultResponse
+        dom = qname q
+        al = map (\(w, fqdn) -> ResourceRecord dom DNS.MX 0 (1 + (B.length $ toBytes fqdn)) (RD_MX w (toBytes fqdn))) l
+    in  defaultResponse
+            { header = hd { identifier = ident, qdCount = 1, anCount = length al }
+            , question = [q]
+            , answer = al
+            }
+
+responseSOA :: Question -> Int -> [(ValidFQDN, ValidFQDN, Int, Int, Int, Int, Int)] -> DNSFormat
+responseSOA q ident l =
+    defaultResponse
+        { header = hd { identifier = ident, qdCount = 1, anCount = length al }
+        , question = [q]
+        , answer = al
+        }
+  where
+    hd = header defaultResponse
+    dom = qname q
+    al = map helper l
+    helper (auth, admEmail, serialNumber, refresh, retryNum, limitOfAuth, negativeTTL) =
+        ResourceRecord
+            dom
+            DNS.SOA
+            0
+            (5 + (B.length authBS) + (B.length admiBS))
+            (RD_SOA authBS admiBS serialNumber refresh retryNum limitOfAuth negativeTTL)
+      where
+        authBS = toBytes auth
+        admiBS = toBytes admEmail
+
+responseSRV :: Question -> Int -> [(Int, Int, Int, ValidFQDN)] -> DNSFormat
+responseSRV q ident l =
+    defaultResponse
+        { header = hd { identifier = ident, qdCount = 1, anCount = length al }
+        , question = [q]
+        , answer = al
+        }
+  where
+    hd = header defaultResponse
+    dom = qname q
+    al = map helper l
+    helper (priorityNum, weightNum, portNum, domainAddr) =
+        ResourceRecord
+            dom
+            DNS.SRV
+            0
+            (3 + (B.length domainBS))
+            (RD_SRV priorityNum weightNum portNum domainBS)
+      where
+        domainBS = toBytes domainAddr
 
 -- | imported from dns:Network/DNS/Internal.hs
 --
