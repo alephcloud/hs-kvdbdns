@@ -59,12 +59,12 @@ instance Binding ExampleBinding where
     getName _ = ["example"]
     getHelp _ = []
 
-    getA     = notImplementedBinding
-    getAAAA  = notImplementedBinding
-    getCNAME = notImplementedBinding
-    getDNAME = notImplementedBinding
-    getPTR   = notImplementedBinding
-    getNS    = notImplementedBinding
+    getA     = notSupportedBinding
+    getAAAA  = notSupportedBinding
+    getCNAME = notSupportedBinding
+    getDNAME = notSupportedBinding
+    getPTR   = notSupportedBinding
+    getNS    = notSupportedBinding
     getTXT   _ _ = return $ BindingFunction queryDummy
 
 ------------------------------------------------------------------------------

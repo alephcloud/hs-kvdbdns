@@ -22,6 +22,7 @@ module Network.DNS.API.Bind.Class
       Binding(..)
       -- ** Helpers
     , notImplementedBinding
+    , notSupportedBinding
     , commandParsingError
       -- * Default Binding
     , DefaultBinding(..)
@@ -32,6 +33,7 @@ import           Data.Byteable
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BC
 import           Data.IP (IPv4, IPv6)
+import           Data.List (intercalate)
 import           Text.Read
 import           Network.DNS.API.Bind.Types
 import           Network.DNS.API.Connection (Connection)
@@ -102,6 +104,13 @@ notImplementedBinding :: Binding binding
                       -> CommandLine -- ^ not use
                       -> Dns (BindingFunction a)
 notImplementedBinding _ _ = return $ BindingFunction $ \_ _ -> pureDns $ errorDns "error: not implemented"
+
+notSupportedBinding :: Binding binding
+                    => binding
+                    -> CommandLine
+                    -> Dns a
+notSupportedBinding binding cmdl =
+    commandParsingError cmdl ("This DNS Type is not supported in : " ++ (show $ intercalate "." (getName binding)))
 
 -------------------------------------------------------------------------------
 --                              Default Binding                              --

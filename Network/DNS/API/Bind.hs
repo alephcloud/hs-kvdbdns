@@ -45,6 +45,8 @@ module Network.DNS.API.Bind
     , BindingDNAME
       -- *** The default error message
     , notImplementedBinding
+    , notSupportedBinding
+    , commandParsingError
 
       -- ** Options
     , Opts

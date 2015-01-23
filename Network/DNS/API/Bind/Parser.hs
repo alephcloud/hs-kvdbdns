@@ -184,7 +184,7 @@ parseCommandLineOptions (t1:t2:t3:ts) =
 
 tokenToToken :: Token a -> b -> Token b
 tokenToToken a b =
-    Token (tokenLine a) (tokenLine a) b
+    Token (tokenLine a) (tokenColumn a) b
 
 parseTokenCommand :: [Token Value] -> Either (TokenError Value) (CommandScope, [Token Value])
 parseTokenCommand []     = Left $ TokenError (Token 0 0 (Other "unexpected error")) "unexpected error"
