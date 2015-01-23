@@ -102,7 +102,7 @@ handleRequest conf conn req = do
                     DNS.A     -> handleRequestA              (bindingsA     $ getBindings conf) fqdn
                     DNS.AAAA  -> handleRequestAAAA           (bindingsAAAA  $ getBindings conf) fqdn
                     DNS.TXT   -> handleRequestTXT            (bindingsTXT   $ getBindings conf) fqdn
-                    DNS.NS    -> handleRequestFQDN DNS.NS    (bindingsPTR   $ getBindings conf) fqdn
+                    DNS.NS    -> handleRequestFQDN DNS.NS    (bindingsNS    $ getBindings conf) fqdn
                     DNS.CNAME -> handleRequestFQDN DNS.CNAME (bindingsCNAME $ getBindings conf) fqdn
                     DNS.DNAME -> handleRequestFQDN DNS.DNAME (bindingsDNAME $ getBindings conf) fqdn
                     DNS.PTR   -> handleRequestFQDN DNS.PTR   (bindingsPTR   $ getBindings conf) fqdn
