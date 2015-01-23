@@ -50,10 +50,10 @@ module Network.DNS.API.Bind
 
       -- ** Options
     , Opts
+    , toListOpts
     , emptyOpts
     , insertOpts
-    , withSafeOpt
-    , withUnsafeOpt
+    , withOpt
 
       -- ** Collections
     , Bindings

@@ -152,7 +152,7 @@ instance Binding DefaultBinding where
                 ]
 
     getA _ cmdl =
-        withCommandLineValues cmdl $ \l ->
+        withCommandLineFlags cmdl $ \l ->
             case l of
                 []        -> commandParsingError cmdl "expecting an IPv4 for this command Line"
                 [ipv4str] -> do
@@ -160,7 +160,7 @@ instance Binding DefaultBinding where
                     return $ BindingFunction $ defaultBindingReturn [ip]
                 _ -> commandParsingError cmdl "expecting only one Value"
     getAAAA _ cmdl =
-        withCommandLineValues cmdl $ \l ->
+        withCommandLineFlags cmdl $ \l ->
             case l of
                 []        -> commandParsingError cmdl "expecting an IPv6 for this command Line"
                 [ipv6str] -> do
@@ -188,7 +188,7 @@ defaultBindingTXT :: CommandLine
                   -> Int
                   -> Dns (BindingFunction [ByteString])
 defaultBindingTXT cmdl minTxt maxTxt =
-    withCommandLineValues cmdl $ \l -> do
+    withCommandLineFlags cmdl $ \l -> do
         when (minTxt > length l) $ commandParsingError cmdl ("expecting at least " ++ show minTxt ++ " Text message(s)")
         when (maxTxt < length l) $ commandParsingError cmdl ("expecting at no more than " ++ show minTxt ++ " Text message(s)")
         return $ BindingFunction $ defaultBindingReturn $ map BC.pack l
@@ -198,7 +198,7 @@ defaultBindingFQDN :: CommandLine
                    -> Int
                    -> Dns (BindingFunction [ValidFQDN])
 defaultBindingFQDN cmdl minFqdn maxFqdn =
-    withCommandLineValues cmdl $ \l -> do
+    withCommandLineFlags cmdl $ \l -> do
         when (minFqdn > length l) $ commandParsingError cmdl ("expecting at least " ++ show minFqdn ++ " FQDN(s)")
         when (maxFqdn < length l) $ commandParsingError cmdl ("expecting at no more than " ++ show minFqdn ++ " FQDN(s)")
         fqdns <- mapM (validateFQDN . BC.pack) l

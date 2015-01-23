@@ -17,8 +17,6 @@
 -- under the License.
 --
 
-{-# LANGUAGE RankNTypes #-}
-
 module Network.DNS.API.Bind.Parser
     ( parseBindFile
     , prettyPrintCommandScope
@@ -36,18 +34,40 @@ import           Network.DNS.API.FQDN
 import           Network.DNS.API.Bind.Types
 import           Text.Read
 
-parseBindFile :: FilePath -> IO (Either String CommandScope)
-parseBindFile filepath = do
-    content <- lines <$> readFile filepath
-    return $ case linesToToken content of
-        Left err -> Left $ printTokenError err
-        Right v  ->
-            case parseTokens v (CommandScope (Token 0 0 "") [] []) of
-                Left err -> Left $ printTokenError err
-                Right (sc, []) -> Right sc
-                Right (_, l)   ->
-                    Left $ printTokenError $ TokenError (head l) ("unexpected token in file: " ++ show filepath)
+-------------------------------------------------------------------------------
+--                          Parsing Token Types                              --
+-------------------------------------------------------------------------------
 
+-- | This represents the expected type of Object to lex/parse from a Bind File
+data Value =
+      Comment String -- ^ a comment line
+    | Command        -- ^ a Command symbol '@'
+    | NewLine        -- ^ A line separator '\n'
+    | OpenScope      -- ^ an open bracket '{'
+    | CloseScope     -- ^ a close bracket '}'
+    | ContinueLine   -- ^ an escape character '\'
+    | Value String   -- ^ some Quoted or unquoted string
+    | Assign         -- ^ '='
+    | Other String   -- ^ unexpected data
+    deriving (Show, Eq)
+
+isTokenNewLine :: Token Value -> Bool
+isTokenNewLine = (==) NewLine . tokenValue
+
+isTokenComment :: Token Value -> Bool
+isTokenComment token =
+    case tokenValue token of
+        Comment _ -> True
+        _         -> False
+
+-------------------------------------------------------------------------------
+--                                  Parser                                   --
+-------------------------------------------------------------------------------
+
+-- | This little helper help you to re-print a CommandScope entirely
+-- (All comments and indentation will be removed) but the command line options
+-- the configuration and the values are printed and can be parsed again by the
+-- Bind Parsers.
 prettyPrintCommandScope :: CommandScope -> String
 prettyPrintCommandScope scope = do
     (intercalate "\n" $ map (prettyPrintLines "") (getCommandLines scope))
@@ -67,14 +87,53 @@ prettyPrintLines :: String -> CommandLine -> String
 prettyPrintLines indent cl =
        indent ++ (show $ tokenValue $ getCommandLineType cl)
     ++ " "    ++ (BC.unpack $ toBytes $ tokenValue $ getCommandLineFQDN cl)
-    ++ " "    ++ (intercalate " " $ map (\t -> "\"" ++ tokenValue t ++ "\"") $ getCommandLineOthers cl)
+    ++ " "    ++ (intercalate " " $ map (\t -> "\"" ++ tokenValue t ++ "\"") $ getCommandLineFlags cl)
     ++ " "    ++ (intercalate " " $ map concatAssign $ toListOpts $ getCommandLineOptions cl)
   where
     concatAssign :: (String, Token String) -> String
     concatAssign (k, v) =
         "\"" ++ k ++ "\"=\"" ++ tokenValue v ++ "\""
 
-parseTokens :: [Token Value] -> CommandScope -> Either (TokenError Value) (CommandScope, [Token Value])
+-------------------------------------------------------------------------------
+--                                  Parser                                   --
+-------------------------------------------------------------------------------
+
+-- | Parse a Bind File
+--
+-- This function can throw IO Exception due to use of Prelude.readFile
+parseBindFile :: FilePath -- ^ filepath to the bind file
+              -> IO (Either String CommandScope)
+parseBindFile filepath = do
+    content <- lines <$> readFile filepath
+    return $ case linesToToken content of
+        Left err -> Left $ printTokenError err
+        Right v  ->
+            case parseTokens v (CommandScope (Token 0 0 "") [] []) of
+                Left err -> Left $ printTokenError err
+                Right (sc, []) -> Right sc
+                Right (_, l)   ->
+                    Left $ printTokenError $ TokenError (head l) ("unexpected token in file: " ++ show filepath)
+
+-------------------------------------------------------------------------------
+--                               Parse the tokens                            --
+-------------------------------------------------------------------------------
+
+-- helper to convert a given token type to another one
+-- but while keeping the line and column info
+--
+-- This function is use to replace the content of a Token by another kind of
+-- value in the parser (from the token list to the CommandScope).
+tokenToToken :: Token a
+             -> b
+             -> Token b
+tokenToToken a b =
+    Token (tokenLine a) (tokenColumn a) b
+
+-- | Parse the given token list
+-- and update the given CommandScope with the token values found in the list
+parseTokens :: [Token Value]
+            -> CommandScope
+            -> Either (TokenError Value) (CommandScope, [Token Value])
 parseTokens []     scope = Right (scope, [])
 parseTokens (t:ts) scope =
     case tokenValue t of
@@ -100,7 +159,15 @@ parseTokens (t:ts) scope =
         Assign       -> Left $ TokenError t "unexpected in context (for Key value assignation)"
         Other _      -> Left $ TokenError t "unexpected (un-handled error in configuration file)"
 
-parseCommandLine :: [Token Value] -> Either (TokenError Value) (CommandLine, [Token Value])
+-- Parse a command Line
+--
+-- expecting:
+-- 1. a type
+-- 2. a valid FQDN
+-- 3. maybe command line flags
+-- 3. maybe command line options ( 'key' '=' 'value')
+parseCommandLine :: [Token Value]
+                 -> Either (TokenError Value) (CommandLine, [Token Value])
 parseCommandLine [] = Left $ TokenError (Token 0 0 (Other "<unknown>")) "unexpected EndOfBuffer"
 parseCommandLine l = do
     (t, l1) <- parseCommandLineType l
@@ -108,17 +175,22 @@ parseCommandLine l = do
     when (null l1') $ Left $ TokenError (head l) "expecting a FQDN after this token"
     (fqdn, l2) <- parseCommandLineFQDN l1'
     (_, l2') <- eatMaybeContinueLine l2
-    (others, l3) <- parseCommandLineOthers l2'
+    (others, l3) <- parseCommandLineFlags l2'
     (opts, l4) <- parseCommandLineOptions l3
     Right (CommandLine t fqdn others opts, l4)
 
-eatMaybeContinueLine :: [Token Value] -> Either (TokenError Value) (Maybe (Token Value), [Token Value])
+-- eat a continue line if present, else do nothing
+-- (this function never fail)
+eatMaybeContinueLine :: [Token Value]
+                     -> Either (TokenError Value) (Maybe (Token Value), [Token Value])
 eatMaybeContinueLine [] = Right (Nothing, [])
 eatMaybeContinueLine (x:xs) =
     case tokenValue x of
         ContinueLine -> Right (Just x , xs)
         _            -> Right (Nothing, x:xs)
 
+-- attempt to read the command line type
+-- (the types are the DNS TYPEs defined in /dns/)
 parseCommandLineType :: [Token Value] -> Either (TokenError Value) (Token TYPE, [Token Value])
 parseCommandLineType [] = Left $ TokenError (Token 0 0 (Other "")) "expected DNS Type: A, AAAA, NS, MX, PTR, SRV, SOA, CNAME, DNAME, TXT"
 parseCommandLineType (t:xs) =
@@ -128,7 +200,9 @@ parseCommandLineType (t:xs) =
             Right (tokenToToken t dnstype, xs)
         _ -> Left $ TokenError t "expected DNS Type: A, AAAA, NS, MX, SRV, SOA, CNAME, DNAME, TXT"
 
-parseCommandLineFQDN :: [Token Value] -> Either (TokenError Value) (Token ValidFQDN, [Token Value])
+-- attempt to read a Valid FQDN
+parseCommandLineFQDN :: [Token Value]
+                     -> Either (TokenError Value) (Token ValidFQDN, [Token Value])
 parseCommandLineFQDN [] = Left $ TokenError (Token 0 0 (Other "")) "expected Valid FQDN"
 parseCommandLineFQDN (t:xs) =
     case tokenValue t of
@@ -137,26 +211,28 @@ parseCommandLineFQDN (t:xs) =
             Right (tokenToToken t fqdn, xs)
         _ -> Left $ TokenError t "expected FQDN"
 
-parseCommandLineOthers :: [Token Value] -> Either (TokenError Value) ([Token String], [Token Value])
-parseCommandLineOthers [] = Right ([], [])
-parseCommandLineOthers [t] =
+-- attempt to read the Command's Flags
+parseCommandLineFlags :: [Token Value] -> Either (TokenError Value) ([Token String], [Token Value])
+parseCommandLineFlags [] = Right ([], [])
+parseCommandLineFlags [t] =
     case tokenValue t of
         Value str    -> Right ([tokenToToken t str], [])
         NewLine      -> Right ([], [t])
         CloseScope   -> Right ([], [t])
         ContinueLine -> Left $ TokenError t "unexpected Continue Line '\\'"
         _            -> Left $ TokenError t "expecting a String instead"
-parseCommandLineOthers (t1:t2:ts) =
+parseCommandLineFlags (t1:t2:ts) =
     case (tokenValue t1, tokenValue t2) of
         (NewLine     , _     ) -> Right ([], t1:t2:ts)
         (CloseScope  , _     ) -> Right ([], t1:t2:ts)
         (Value _     , Assign) -> Right ([], t1:t2:ts)
-        (ContinueLine, _     ) -> parseCommandLineOthers (t2:ts)
+        (ContinueLine, _     ) -> parseCommandLineFlags (t2:ts)
         (Value str   , _     ) -> do
-            (others, remains) <- parseCommandLineOthers (t2:ts)
+            (others, remains) <- parseCommandLineFlags (t2:ts)
             Right ((tokenToToken t1 str):others, remains)
         _         -> Left $ TokenError t1 "expecting a String instead"
 
+-- attempt to read the Command Line Options
 parseCommandLineOptions :: [Token Value] -> Either (TokenError Value) (Opts, [Token Value])
 parseCommandLineOptions [] = Right (emptyOpts, [])
 parseCommandLineOptions [t] =
@@ -181,11 +257,7 @@ parseCommandLineOptions (t1:t2:t3:ts) =
             Right (insertOpts k (tokenToToken t3 v) opts, remains)
         _       -> Left $ TokenError t1 "not enough data to write a Valide Options"
 
-
-tokenToToken :: Token a -> b -> Token b
-tokenToToken a b =
-    Token (tokenLine a) (tokenColumn a) b
-
+-- this function is called if the char '@' has been found (i.e. the token /Command/ has been read)
 parseTokenCommand :: [Token Value] -> Either (TokenError Value) (CommandScope, [Token Value])
 parseTokenCommand []     = Left $ TokenError (Token 0 0 (Other "unexpected error")) "unexpected error"
 parseTokenCommand (s:xs) = do
@@ -194,47 +266,32 @@ parseTokenCommand (s:xs) = do
     parseTokenCommandOpenScope (head xs)
     parseTokens (tail xs) (CommandScope symbol [] [])
 
+-- read a symbol
 parseTokenCommandSymbol :: Token Value -> Either (TokenError Value) (Token String)
 parseTokenCommandSymbol t =
     case tokenValue t of
         Value str -> Right $ Token (tokenLine t) (tokenColumn t) str
         _         -> Left $ TokenError t "expecting a Command Symbol"
 
+-- read an OpenScope
 parseTokenCommandOpenScope :: (Token Value) -> Either (TokenError Value) ()
 parseTokenCommandOpenScope t =
     case tokenValue t of
         OpenScope -> Right ()
         _         -> Left $ TokenError t "expecting a Command Open Scope"
 
--- LEXER ----------------------------------------------------------------------
+-------------------------------------------------------------------------------
+--                                     Lexer                                 --
+-------------------------------------------------------------------------------
 
-data Value =
-      Comment String
-    | Command
-    | NewLine
-    | OpenScope
-    | CloseScope
-    | ContinueLine
-    | Value String
-    | Assign
-    | Other String
-    deriving (Show, Eq)
-
+-- A new line in the Lexing context
+-- It is not expected to exported outside of this module and is used internaly
+--
+-- This type is only use to keep the line number while parsing the file.
 data Line = Line Int String
     deriving (Show, Eq)
 
-isTokenNewLine :: Token Value -> Bool
-isTokenNewLine token = tokenValue token == NewLine
-
-isTokenComment :: Token Value -> Bool
-isTokenComment token =
-    case tokenValue token of
-        Comment _ -> True
-        _         -> False
-
-
 -- | Parse the lines and returns the list of Token
--- In case of error, the 
 linesToToken :: [String] -> Either (TokenError Value) [Token Value]
 linesToToken l = do
     -- 1. give a line number to every entry we got
@@ -270,19 +327,16 @@ splitLineToTokens (Line lineNumber content) = do
             '#'  -> Right $ (Token lineNumber col (Comment xs)):[Token lineNumber (col + length xs + 1) NewLine]
 
             -- Detect we start a command
-            '@'  -> do
-                l <- splitLine (col + 1) xs
-                Right $ (Token lineNumber col (Command)):l
+            '@'  -> (:) (Token lineNumber col (Command))    <$> splitLine (col + 1) xs
 
             -- Detect start a scope
-            '{'  -> do
-                l <- splitLine (col + 1) xs
-                Right $ (Token lineNumber col (OpenScope)):l
+            '{'  -> (:) (Token lineNumber col (OpenScope))  <$> splitLine (col + 1) xs
 
             -- Detect end a scope
-            '}'  -> do
-                l <- splitLine (col + 1) xs
-                Right $ (Token lineNumber col (CloseScope)):l
+            '}'  -> (:) (Token lineNumber col (CloseScope)) <$> splitLine (col + 1) xs
+
+            -- Parse the assignation character
+            '='  -> (:) (Token lineNumber col (Assign))     <$> splitLine (col + 1) xs
 
             -- Detect the continue token
             '\\' -> do
@@ -296,17 +350,15 @@ splitLineToTokens (Line lineNumber content) = do
                     -- That's something unexpected
                     _   -> Left  $ TokenError (head l) "Unexpecting token after a ContinueLine (expected End Of Line)"
 
-            -- Parse the assignation character
-            '='  -> do
-                l <- splitLine (col + 1) xs
-                Right $ (Token lineNumber col (Assign)):l
-
             _ -> case takeValue (x:xs) of
                     Left  err -> Left $ TokenError (Token lineNumber col (Other (x:xs))) err
                     Right (str, readSize) -> do
                         l <- splitLine (col + readSize) (drop readSize (x:xs))
                         Right $ (Token lineNumber col (Value str)):l
 
+-- take both:
+-- * a quoted string
+-- * a non-quoted string
 takeValue :: String
           -> Either String (String, Int)
 takeValue [] = Left "unexpected empty value"
@@ -331,11 +383,7 @@ takeValueQuoted :: String
 takeValueQuoted str =
     case str of
         []          -> Left "Unexpected end of file in a Quoted String"
-        '"' :_      -> Right []
+        '"' :_      -> Right [] -- This is the Stop point
         '\\':[]     -> Left "Unexpected escape character in a Quoted String"
-        '\\':'"':xs -> do
-            l <- takeValueQuoted xs
-            Right $ '\\':'"':l
-        x:xs -> do
-            l <- takeValueQuoted xs
-            Right $ x:l
+        '\\':'"':xs -> ((:) '\\' . (:) '"') <$> takeValueQuoted xs
+        x:xs        -> ((:) x) <$> takeValueQuoted xs

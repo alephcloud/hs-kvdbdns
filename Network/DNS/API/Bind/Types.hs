@@ -37,14 +37,13 @@ module Network.DNS.API.Bind.Types
     , TokenError(..)
     , printTokenError
       -- ** CommandLine helpers
-    , withCommandLineValues
-    , withCommandLineValues'
+    , withCommandLineFlags
+    , withCommandLineFlags'
       -- ** Options helpers
     , toListOpts
     , emptyOpts
     , insertOpts
-    , withSafeOpt
-    , withUnsafeOpt
+    , withOpt
     ) where
 
 import           Data.ByteString (ByteString)
@@ -78,9 +77,6 @@ type BindingDNAME  = BindingFunction [ValidFQDN]
 --                              Binding options                              --
 -------------------------------------------------------------------------------
 
-toListOpts :: Opts -> [(String, Token String)]
-toListOpts = Map.toList . getOpts
-
 data Token value = Token
     { tokenLine   :: Int
     , tokenColumn :: Int
@@ -101,56 +97,85 @@ printTokenError te =
     token = failedToken te
     prefixMsg = "line(" ++ (show $ tokenLine token) ++ ") column(" ++ (show $ tokenColumn token) ++ ")"
 
+-------------------------------------------------------------------------------
+--                              Command Scope                                --
+-------------------------------------------------------------------------------
+
+-- | This is the general representation of the given value
 data CommandScope = CommandScope
-    { getCommandScopeName :: Token String
+    { getCommandScopeName :: Token String -- ^ The command String
     , getCommandLines     :: [CommandLine]
     , getCommandSubScope  :: [CommandScope]
     } deriving (Show, Eq)
 
-getCommandName :: CommandScope -> String
+getCommandName :: CommandScope
+               -> String
 getCommandName scope = tokenValue $ getCommandScopeName scope
 
+-------------------------------------------------------------------------------
+--                              Command Line                                 --
+-------------------------------------------------------------------------------
+
+-- | This record represents a Command Line from the configuration file (the
+-- bind file).
+--
+-- This value will be use to configure a DNS Handler to the appropriate Type
+-- and Domain.
 data CommandLine = CommandLine
-    { getCommandLineType    :: Token TYPE
-    , getCommandLineFQDN    :: Token ValidFQDN
-    , getCommandLineOthers  :: [Token String]
-    , getCommandLineOptions :: Opts
+    { getCommandLineType    :: Token TYPE      -- ^ The DNS TYPE to configure
+    , getCommandLineFQDN    :: Token ValidFQDN -- ^ the domain to execute the action on
+    , getCommandLineFlags   :: [Token String]  -- ^ Flags/configuration options
+    , getCommandLineOptions :: Opts            -- ^ Key=Value options configuration
     } deriving (Show, Eq)
 
-withCommandLineValues :: CommandLine
-                      -> ([String] -> a)
-                      -> a
-withCommandLineValues cmdl f =
-    f (map tokenValue $ getCommandLineOthers cmdl)
+-- | Execute the given function with the Flags of the given Command Line
+withCommandLineFlags :: CommandLine
+                     -> ([String] -> a)
+                     -> a
+withCommandLineFlags cmdl f =
+    f (map tokenValue $ getCommandLineFlags cmdl)
 
-withCommandLineValues' :: (Read value)
-                       => CommandLine
-                       -> (Either (TokenError String) [value] -> a)
-                       -> a
-withCommandLineValues' cmdl f =
-    f (mapM tokenReadEither $ getCommandLineOthers cmdl)
+-- | Execute the given function with the Flags of the given Command Line
+--
+-- Attempt to read the Flags values
+withCommandLineFlags' :: Read value
+                      => CommandLine
+                      -> (Either (TokenError String) [value] -> a)
+                      -> a
+withCommandLineFlags' cmdl f =
+    f (mapM tokenReadEither $ getCommandLineFlags cmdl)
   where
     tokenReadEither t =
         case readEither $ tokenValue t of
             Left err -> Left (TokenError t err)
             Right v  -> Right v
 
+-------------------------------------------------------------------------------
+--                              Binding Options                              --
+-------------------------------------------------------------------------------
+
+-- | Binding options are Key Value pair
+-- A string and a Token.
+--
+-- The value is still wrapped into a Token in order to keep the all information
+-- we can about this value and allow the user to provide meaning error message.
 newtype Opts = Opts
     { getOpts :: Map String (Token String)
     } deriving (Show, Eq)
 
-insertOpts :: String -> Token String -> Opts -> Opts
-insertOpts k v m = Opts $ Map.insert k v (getOpts m)
-
 emptyOpts :: Opts
 emptyOpts = Opts Map.empty
 
-withSafeOpt :: Opts -> String -> (Maybe (Token String) -> a) -> a
-withSafeOpt opts k f =
-    f $ Map.lookup k $ getOpts opts
+toListOpts :: Opts -> [(String, Token String)]
+toListOpts = Map.toList . getOpts
 
-withUnsafeOpt :: Opts -> String -> (Token String -> a) -> a
-withUnsafeOpt opts k f =
-    case Map.lookup k $ getOpts opts of
-        Nothing -> error $ "Network.DNS.API.Bind: expected options: " ++ k
-        Just v  -> f v
+insertOpts :: String -> Token String -> Opts -> Opts
+insertOpts k v m = Opts $ Map.insert k v (getOpts m)
+
+-- | look up the given /key/ in the options /Opts/
+-- and 'execute' the given function with the result
+withOpt :: Opts   -- ^ the options to lookup in
+        -> String -- ^ the /key/ to lookup
+        -> (Maybe (Token String) -> a) -- ^ /f/
+        -> a -- ^ (f $ lookup key options)
+withOpt opts k f = f $ Map.lookup k $ getOpts opts
