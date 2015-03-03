@@ -32,6 +32,11 @@ module Network.DNS.API.Bind
     , TokenError(..)
     , parseBindFile
 
+      -- ** CommandLine helpers
+
+    , withCommandLineFlags
+    , withCommandLineFlags'
+
       -- * Write your own extension
       -- ** Class
     , Binding(..)
