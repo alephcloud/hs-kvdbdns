@@ -83,7 +83,7 @@ import           Text.Read
 
 -- | The function to trigger for a given FQDN+recordType
 newtype BindingFunction value = BindingFunction
-    { bindingFunction :: forall context . Connection context -> ValidFQDN -> DnsIO value
+    { bindingFunction :: Connection -> ValidFQDN -> DnsIO value
     }
 
 type BindingA      = BindingFunction [IPv4]

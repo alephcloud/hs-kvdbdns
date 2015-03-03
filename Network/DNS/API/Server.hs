@@ -21,7 +21,7 @@ module Network.DNS.API.Server
     ( -- * Types
       ServerConf(..)
     , createServerConf
-    , Connection(getContext, getSockAddr, getCreationDate, getLastUsedDate, setKeepOpen)
+    , Connection(getSockAddr, getCreationDate, getLastUsedDate, setKeepOpen)
       -- * defaultServer
     , getDefaultConnections
     , defaultServer
@@ -59,7 +59,7 @@ import           Network.Socket hiding (recvFrom, recv, send)
 ------------------------------------------------------------------------------
 
 -- | Server configuration
-data ServerConf context = ServerConf
+data ServerConf = ServerConf
     { getBindings :: DNSBindings
     , inFail      :: DNSFormat -> IO (Either String DNSFormat)
     }
@@ -67,7 +67,7 @@ data ServerConf context = ServerConf
 -- | Create a default Server Conf with every queries configured to
 -- fail properly
 createServerConf :: DNSBindings -- ^ the collection of bindings
-                 -> ServerConf context
+                 -> ServerConf
 createServerConf b =
     ServerConf
         { getBindings = b
@@ -93,7 +93,7 @@ failError req =
 -- Handle a request:
 -- try the query function given in the ServerConf
 -- if it fails, then call the given proxy
-handleRequest :: ServerConf a -> Connection a -> DNSFormat -> IO (Either String ByteString)
+handleRequest :: ServerConf -> Connection -> DNSFormat -> IO (Either String ByteString)
 handleRequest conf conn req = do
     case execDns $ validateFQDN $ qname q of
         Left err   -> return $ Left err
@@ -344,27 +344,27 @@ defaultResponse =
 --                          Internal Queue System                           --
 ------------------------------------------------------------------------------
 
-data DNSReqToHandle a = DNSReqToHandle
-    { connection :: Connection a
+data DNSReqToHandle = DNSReqToHandle
+    { connection :: Connection
     , getReq     :: DNSFormat
     }
 
-type DNSReqToHandleChan a = TChan (DNSReqToHandle a)
+type DNSReqToHandleChan = TChan DNSReqToHandle
 
-newDNSReqToHandleChan :: IO (DNSReqToHandleChan a)
+newDNSReqToHandleChan :: IO DNSReqToHandleChan
 newDNSReqToHandleChan = atomically $ newTChan
 
-putReqToHandle :: (DNSReqToHandleChan a) -> (DNSReqToHandle a) -> IO ()
+putReqToHandle :: DNSReqToHandleChan -> DNSReqToHandle -> IO ()
 putReqToHandle chan req = atomically $ writeTChan chan req
 
-popReqToHandle :: (DNSReqToHandleChan a) -> IO (DNSReqToHandle a)
+popReqToHandle :: DNSReqToHandleChan -> IO DNSReqToHandle
 popReqToHandle = atomically . readTChan
 
 ------------------------------------------------------------------------------
 --                         Default server: helpers                          --
 ------------------------------------------------------------------------------
 
-defaultQueryHandler :: ServerConf a -> DNSReqToHandleChan a -> IO ()
+defaultQueryHandler :: ServerConf -> DNSReqToHandleChan -> IO ()
 defaultQueryHandler conf chan = do
     dnsReq <- popReqToHandle chan
     eResp <- handleRequest conf (connection dnsReq) (getReq dnsReq)
@@ -372,7 +372,7 @@ defaultQueryHandler conf chan = do
         Right bs -> defaultResponder (connection dnsReq) bs
         Left err -> putStrLn err
   where
-    defaultResponder :: Connection a -> ByteString -> IO ()
+    defaultResponder :: Connection -> ByteString -> IO ()
     defaultResponder conn resp = do
         API.write conn resp
         keepOpen <- API.getKeepOpen conn
@@ -381,7 +381,7 @@ defaultQueryHandler conf chan = do
             else API.close conn
 
 -- | a default server: handle queries for ever
-defaultListener :: DNSReqToHandleChan a -> Connection a -> IO ()
+defaultListener :: DNSReqToHandleChan -> Connection -> IO ()
 defaultListener chan conn = do
     -- Listen the given connection
     API.listen conn 10
@@ -405,9 +405,8 @@ defaultListener chan conn = do
 -- all sockets TCP/UDP + IPv4 + port(53)
 getDefaultConnections :: Maybe String
                       -> Seconds       -- ^ The timeout for every connections
-                      -> Maybe context -- ^ A possible context every Connection can have (That could be a MVar or something else)
-                      -> IO [Connection context]
-getDefaultConnections mport timeout mcontext = do
+                      -> IO [Connection]
+getDefaultConnections mport timeout = do
     let (mflags, service) = maybe (([], Just "domain")) (\port -> ([AI_NUMERICSERV], Just port)) mport
     addrinfos <- getAddrInfo
                     (Just (defaultHints
@@ -418,25 +417,24 @@ getDefaultConnections mport timeout mcontext = do
                     )
                    (Nothing)
                    service
-    catMaybes <$> mapM (addrInfoToSocket timeout mcontext) addrinfos
+    catMaybes <$> mapM (addrInfoToSocket timeout) addrinfos
 
 addrInfoToSocket :: Seconds       -- ^ The timeout for every connections
-                 -> Maybe context -- ^ A possible context every Connection can have (That could be a MVar or something else)
                  -> AddrInfo      -- ^ The address info
-                 -> IO (Maybe (Connection context))
-addrInfoToSocket timeout mcontext addrinfo
+                 -> IO (Maybe Connection)
+addrInfoToSocket timeout addrinfo
     | (addrSocketType addrinfo) `notElem` [Datagram, Stream] = return Nothing -- $ fail $ "socket type not supported: " ++ (show addrinfo)
     | otherwise = do
         sock <- socket (addrFamily addrinfo) (addrSocketType addrinfo) defaultProtocol
         bindSocket sock (addrAddress addrinfo)
         case addrSocketType addrinfo of
-            Datagram -> Just <$> API.newConnectionUDPServer sock timeout mcontext
-            Stream   -> Just <$> API.newConnectionTCPServer sock timeout mcontext
+            Datagram -> Just <$> API.newConnectionUDPServer sock timeout
+            Stream   -> Just <$> API.newConnectionTCPServer sock timeout
             _        -> return $ Nothing -- "Socket Type not handle: " ++ (show addrinfo)
 
 -- | launch the default server
-defaultServer :: ServerConf a
-              -> [Connection a]
+defaultServer :: ServerConf
+              -> [Connection]
               -> IO ()
 defaultServer _    []       = error $ "Network.DNS.API.Server: defaultServer: list of DNSApiConnection is empty"
 defaultServer conf sockList = do

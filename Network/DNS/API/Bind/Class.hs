@@ -186,7 +186,7 @@ checkFQDNEmpty fqdn
     | byteableLength fqdn == 0 = True
     | otherwise                = False
 
-defaultBindingReturn :: value -> Connection context -> ValidFQDN -> DnsIO value
+defaultBindingReturn :: value -> Connection -> ValidFQDN -> DnsIO value
 defaultBindingReturn v _ fqdn
     | checkFQDNEmpty fqdn = return v
     | otherwise           = pureDns $ errorDns "error: void binding"

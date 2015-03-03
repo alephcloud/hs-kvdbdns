@@ -41,7 +41,7 @@ main = do
     name <- getProgName
     case args of
         ["--bind",f] -> do
-            sl <- getDefaultConnections (Just "8053") (Seconds 3) Nothing
+            sl <- getDefaultConnections (Just "8053") (Seconds 3)
             configfile <- either error id <$> parseBindFile f
             -- Force the resolution of the Chunks in order to get the error message now
             --
@@ -92,7 +92,7 @@ exampleDB =
 -- * db  : return the DB
 --
 -- This actual example just ignore the connection context and information
-queryDummy :: Connection a
+queryDummy :: Connection
            -> ValidFQDN
            -> DnsIO [ByteString]
 queryDummy conn req = do

@@ -49,7 +49,7 @@ module Network.DNS.API
 
     -- * Accetp DNS API queries
     -- ** Types
-  , Connection(getContext, getSockAddr, getCreationDate, getLastUsedDate, setKeepOpen)
+  , Connection(getSockAddr, getCreationDate, getLastUsedDate, setKeepOpen)
   , ServerConf(..)
   , createServerConf
     -- ** helpers

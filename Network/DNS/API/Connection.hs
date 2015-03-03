@@ -35,16 +35,15 @@ import Data.Hourglass
 import System.Hourglass
 
 -- | Represent a client connection (UDP or TCP)
-data Connection a = Connection
+data Connection = Connection
   { listen      :: Int -> IO ()
-  , accept      :: IO (Connection a)
+  , accept      :: IO Connection
   , read        :: Int -> IO (Maybe ByteString)
   , write       :: ByteString -> IO ()
   , close       :: IO ()
     -- Aimed to be use at any time:
   , getKeepOpen :: IO Bool          -- ^ does the session need to be kept opened
   , setKeepOpen :: Bool -> IO ()    -- ^ set the current session to keep is open (or not)
-  , getContext  :: MVar a           -- ^ a connection context
   , getSockAddr :: SockAddr         -- ^ the connection socket address
   , getCreationDate :: ElapsedP     -- ^ the UNIX timestamp creation date
   , getLastUsedDate :: IO ElapsedP  -- ^ the UNIX timestamp last use date
@@ -64,21 +63,18 @@ updateTimeStamp mvar = do
 -- If an initial context is provided, it will be also used in any accepted Connections
 newConnectionUDPServer :: Socket  -- ^ the socket to wrap up in a Connection
                        -> Seconds -- ^ Timeout in any Read/Write actions
-                       -> Maybe a -- ^ default context: will be use for every accepted connections
-                       -> IO (Connection a)
-newConnectionUDPServer sock ttl mc = do
-  mvar <- maybe (newEmptyMVar) (newMVar) mc
+                       -> IO Connection
+newConnectionUDPServer sock ttl = do
   date <- timeCurrentP
   lastUse <- newMVar date
   return $ Connection
     { listen  = \_ -> return ()
-    , accept  = acceptUDPClient sock ttl mc >>= \r -> (updateTimeStamp lastUse >> return r)
+    , accept  = acceptUDPClient sock ttl >>= \r -> (updateTimeStamp lastUse >> return r)
     , read    = error "Network.DNS.API.Connection.UDP.Server: should not read"
     , write   = error "Network.DNS.API.Connection.UDP.Server: should not write"
     , close   = Socket.close sock >> updateTimeStamp lastUse
     , getKeepOpen = return True
     , setKeepOpen = \_ -> return ()
-    , getContext = mvar
     , getSockAddr = error "Network.DNS.API.Connection.UDP.Server: do not provide sock addr"
     , getCreationDate = date
     , getLastUsedDate = readMVar lastUse
@@ -86,11 +82,9 @@ newConnectionUDPServer sock ttl mc = do
 
 acceptUDPClient :: Socket
                 -> Seconds
-                -> Maybe a
-                -> IO (Connection a)
-acceptUDPClient sock (Seconds s) mc = do
+                -> IO Connection
+acceptUDPClient sock (Seconds s) = do
   let ttl = (fromIntegral s) * 1000 * 1000
-  mvar <- maybe (newEmptyMVar) (newMVar) mc
   (bs, addr) <- Socket.recvFrom sock 512
   date <- timeCurrentP
   lastUse <- newMVar date
@@ -102,7 +96,6 @@ acceptUDPClient sock (Seconds s) mc = do
     , close   = updateTimeStamp lastUse -- the given socket is the same than the server Socket, don't close it
     , getKeepOpen = return False -- In a case of a UDP Connection we don't want to keep it open
     , setKeepOpen = \_ -> return ()
-    , getContext = mvar
     , getSockAddr = addr
     , getCreationDate = date
     , getLastUsedDate = readMVar lastUse
@@ -111,21 +104,18 @@ acceptUDPClient sock (Seconds s) mc = do
 -- | Create a new Connection for TCP Server
 newConnectionTCPServer :: Socket  -- ^ the socket to wrap up in a Connection
                        -> Seconds -- ^ ttl
-                       -> Maybe a -- ^ an initial value to use in the context of the udp requests
-                       -> IO (Connection a)
-newConnectionTCPServer sock ttl mc = do
-  mvar <- maybe (newEmptyMVar) (newMVar) mc
+                       -> IO Connection
+newConnectionTCPServer sock ttl = do
   date <- timeCurrentP
   lastUse <- newMVar date
   return $ Connection
     { listen  = \qSize -> Socket.listen sock qSize >> updateTimeStamp lastUse
-    , accept  = acceptTCPClient sock ttl mc >>= (\r -> updateTimeStamp lastUse >> return r)
+    , accept  = acceptTCPClient sock ttl >>= (\r -> updateTimeStamp lastUse >> return r)
     , read    = error "Network.DNS.API.Connection.TCP.Server: should not read"
     , write   = error "Network.DNS.API.Connection.TCP.Server: should not write"
     , close   = Socket.close sock >> updateTimeStamp lastUse
     , getKeepOpen = return True
     , setKeepOpen = \_ -> return ()
-    , getContext = mvar
     , getSockAddr = error "Network.DNS.API.Connection.UDP.Server: do not provide sock addr"
     , getCreationDate = date
     , getLastUsedDate = readMVar lastUse
@@ -133,11 +123,9 @@ newConnectionTCPServer sock ttl mc = do
 
 acceptTCPClient :: Socket
                 -> Seconds
-                -> Maybe a
-                -> IO (Connection a)
-acceptTCPClient sock (Seconds s) mc = do
+                -> IO Connection
+acceptTCPClient sock (Seconds s) = do
   let ttl = (fromIntegral s) * 1000 * 1000
-  mvar <- maybe (newEmptyMVar) (newMVar) mc
   -- by default we don't want to keep opened connections
   keepOpen <- newMVar False
   (sockClient, addr) <- Socket.accept sock
@@ -151,7 +139,6 @@ acceptTCPClient sock (Seconds s) mc = do
     , close   = Socket.close sockClient >> updateTimeStamp lastUse
     , getKeepOpen = readMVar keepOpen
     , setKeepOpen = \b -> modifyMVar_ keepOpen (\_ -> return b)
-    , getContext = mvar
     , getSockAddr = addr
     , getCreationDate = date
     , getLastUsedDate = readMVar lastUse
