@@ -1,6 +1,6 @@
--- Copyright (c) 2013-2014 PivotCloud, Inc.
+-- Copyright (c) 2013-2015 PivotCloud, Inc.
 --
--- Tests
+-- Main
 --
 -- Please feel free to contact us at licensing@pivotmail.com with any
 -- contributions, additions, or other feedback; we would love to hear from
@@ -15,7 +15,6 @@
 -- WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 -- License for the specific language governing permissions and limitations
 -- under the License.
---
 
 module Main
     ( main

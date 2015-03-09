@@ -10,7 +10,7 @@ license:             Apache-2
 license-file:        LICENSE
 author:              Nicolas DI PRIMA
 maintainer:          ndiprima@alephcloud.com
-copyright:           Copyright (c) 2014 AlephCloud, Inc.
+copyright:           Copyright (c) 2014-2015 PivotCloud, Inc.
 Homepage:            https://github.com/alephcloud/hs-dns-api
 category:            Network
 build-type:          Simple
