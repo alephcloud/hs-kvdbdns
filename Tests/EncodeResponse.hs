@@ -1,4 +1,4 @@
--- Copyright (c) 2013-2014 PivotCloud, Inc.
+-- Copyright (c) 2013-2015 PivotCloud, Inc.
 --
 -- EncodeResponse
 --
@@ -15,8 +15,9 @@
 -- WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 -- License for the specific language governing permissions and limitations
 -- under the License.
---
+
 {-# LANGUAGE FlexibleInstances #-}
+
 module EncodeResponse where
 
 import Data.ByteString (ByteString)
