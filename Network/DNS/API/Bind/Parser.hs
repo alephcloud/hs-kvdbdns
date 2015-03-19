@@ -110,8 +110,8 @@ parseBindFile filepath = do
             case parseTokens v (CommandScope (Token 0 0 "") [] []) of
                 Left err -> Left $ printTokenError err
                 Right (sc, []) -> Right sc
-                Right (_, l)   ->
-                    Left $ printTokenError $ TokenError (head l) ("unexpected token in file: " ++ show filepath)
+                Right (_, t:_) ->
+                    Left $ printTokenError $ TokenError t ("unexpected token in file: " ++ show filepath)
 
 -------------------------------------------------------------------------------
 --                               Parse the tokens                            --
@@ -168,10 +168,10 @@ parseTokens (t:ts) scope =
 parseCommandLine :: [Token Value]
                  -> Either (TokenError Value) (CommandLine, [Token Value])
 parseCommandLine [] = Left $ TokenError (Token 0 0 (Other "<unknown>")) "unexpected EndOfBuffer"
-parseCommandLine l = do
+parseCommandLine l@(x:_) = do
     (t, l1) <- parseCommandLineType l
     (_, l1') <- eatMaybeContinueLine l1
-    when (null l1') $ Left $ TokenError (head l) "expecting a FQDN after this token"
+    when (null l1') $ Left $ TokenError x "expecting a FQDN after this token"
     (fqdn, l2) <- parseCommandLineFQDN l1'
     (_, l2') <- eatMaybeContinueLine l2
     (others, l3) <- parseCommandLineFlags l2'
@@ -261,9 +261,11 @@ parseTokenCommand :: [Token Value] -> Either (TokenError Value) (CommandScope, [
 parseTokenCommand []     = Left $ TokenError (Token 0 0 (Other "unexpected error")) "unexpected error"
 parseTokenCommand (s:xs) = do
     symbol <- parseTokenCommandSymbol s
-    when (null xs) $ Left $ TokenError s "expecting an Open Scope '{' after this point"
-    parseTokenCommandOpenScope (head xs)
-    parseTokens (tail xs) (CommandScope symbol [] [])
+    case xs of
+        [] -> Left $ TokenError s "expecting an Open Scope '{' after this point"
+        (t:ts) -> do
+            parseTokenCommandOpenScope t
+            parseTokens ts (CommandScope symbol [] [])
 
 -- read a symbol
 parseTokenCommandSymbol :: Token Value -> Either (TokenError Value) (Token String)
@@ -347,7 +349,7 @@ splitLineToTokens (Line lineNumber content) = do
                     -- In this case we want the line to continue, so we drop the NewLine
                     [t] | isTokenNewLine t -> Right $ [Token lineNumber col ContinueLine]
                     -- That's something unexpected
-                    _   -> Left  $ TokenError (head l) "Unexpecting token after a ContinueLine (expected End Of Line)"
+                    (t:_) -> Left  $ TokenError t "Unexpecting token after a ContinueLine (expected End Of Line)"
 
             _ -> case takeValue (x:xs) of
                     Left  err -> Left $ TokenError (Token lineNumber col (Other (x:xs))) err
@@ -360,14 +362,12 @@ splitLineToTokens (Line lineNumber content) = do
 -- * a non-quoted string
 takeValue :: String
           -> Either String (String, Int)
-takeValue [] = Left "unexpected empty value"
-takeValue l
-    | head l == '"' = do
-        str <- takeValueQuoted (tail l)
-        Right (str, length str + 2)
-    | otherwise     = do
-        str <- takeValueUnquoted l
-        Right (str, length str)
+takeValue l = do
+    (size, str) <- case l of
+        []       -> Left "unexpected empty value"
+        ('"':ts) -> (,) <$> Right 2 <*> takeValueQuoted ts
+        _        -> (,) <$> Right 0 <*> takeValueUnquoted l
+    Right (str, length str + size)
 
 takeValueUnquoted :: String
                   -> Either String String
