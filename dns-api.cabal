@@ -76,6 +76,7 @@ Executable           Client
   Main-Is:           Client.hs
   hs-source-dirs:    example
   default-language:    Haskell2010
+  other-modules:       API
   if flag(executable)
     build-depends:       base >=4.7 && <4.8
                        , bytestring
