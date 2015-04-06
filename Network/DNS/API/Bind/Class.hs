@@ -88,18 +88,18 @@ class Binding binding where
     getSOA    :: binding -> CommandLine -> Dns BindingSOA
     getSRV    :: binding -> CommandLine -> Dns BindingSRV
 
-printBindingHelp :: Binding binding
-                 => String
-                 -> binding
+printBindingHelp :: String
+                 -> [String] -- ^ getName
+                 -> [String] -- ^ getHelp
                  -> String
-printBindingHelp indentation binding =
+printBindingHelp indentation name help =
     intercalate "\n" $ bindingPath:linesDoc
   where
     bindingPath :: String
-    bindingPath = indentation ++ (intercalate "/" $ getName binding)
+    bindingPath = indentation ++ (intercalate "/" name)
 
     linesDoc :: [String]
-    linesDoc = map ((++) (indentation ++ "  ")) $ getHelp binding
+    linesDoc = map ((++) (indentation ++ "  ")) help
 
 -- | In case you don't want to implement an interface you can provide this function
 -- This function can be use to fill the DNS records type you may not want to use/enable

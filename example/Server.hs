@@ -76,9 +76,9 @@ main = do
             defaultServer (createServerConf bindings) sl
         ["--help"] ->
             putStrLn $ intercalate "\n"
-                [ printBindingHelp "  " DefaultBinding
+                [ printBindingHelp "  " (getName DefaultBinding) (getHelp DefaultBinding)
                 , ""
-                , printBindingHelp "  " ExampleBinding
+                , printBindingHelp "  " (getName ExampleBinding) (getHelp ExampleBinding)
                 ]
         _ -> putStrLn $ "usage: " ++ name ++ " --bind <filepath>"
 
