@@ -54,6 +54,8 @@ module Network.DNS.API.Bind
     , notImplementedBinding
     , notSupportedBinding
     , commandParsingError
+      -- *** Binding Help
+    , printBindingHelp
 
       -- ** Options
     , Opts

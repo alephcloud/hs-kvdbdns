@@ -20,6 +20,7 @@ module Network.DNS.API.Bind.Class
     ( -- * Binding class
       Binding(..)
       -- ** Helpers
+    , printBindingHelp
     , notImplementedBinding
     , notSupportedBinding
     , commandParsingError
@@ -86,6 +87,19 @@ class Binding binding where
     getMX     :: binding -> CommandLine -> Dns BindingMX
     getSOA    :: binding -> CommandLine -> Dns BindingSOA
     getSRV    :: binding -> CommandLine -> Dns BindingSRV
+
+printBindingHelp :: Binding binding
+                 => String
+                 -> binding
+                 -> String
+printBindingHelp indentation binding =
+    intercalate "\n" $ bindingPath:linesDoc
+  where
+    bindingPath :: String
+    bindingPath = indentation ++ (intercalate "/" $ getName binding)
+
+    linesDoc :: [String]
+    linesDoc = map ((++) (indentation ++ "  ")) $ getHelp binding
 
 -- | In case you don't want to implement an interface you can provide this function
 -- This function can be use to fill the DNS records type you may not want to use/enable

@@ -37,6 +37,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString       as S
 import qualified Data.ByteString.Char8 as BS
 import Data.Hourglass.Types
+import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -73,12 +74,37 @@ main = do
                     $ insertDNSBindings DefaultBinding
                     $ return (configfile, emptyDNSBindings)
             defaultServer (createServerConf bindings) sl
+        ["--help"] ->
+            putStrLn $ intercalate "\n"
+                [ printBindingHelp "  " DefaultBinding
+                , ""
+                , printBindingHelp "  " ExampleBinding
+                ]
         _ -> putStrLn $ "usage: " ++ name ++ " --bind <filepath>"
 
 data ExampleBinding = ExampleBinding
 instance Binding ExampleBinding where
     getName _ = ["example"]
-    getHelp _ = []
+    getHelp _ =
+        [ "This is an example of how you can write and use your own DNS Binding."
+        , ""
+        , "This binding provides 2 command:"
+        , "* echo to repeat in the TXT response the received query"
+        , "* db   query one of the value associated to one of the keys:"
+        , "       " ++ intercalate " " (map (show . fst) exampleDB)
+        , ""
+        , "In this example, all the DNS Types are disable but TXT:"
+        , "* A     disable"
+        , "* AAAA  disable"
+        , "* TXT   <Domain Name>"
+        , "* NS    disable"
+        , "* CNAME disable"
+        , "* DNAME disable"
+        , "* PTR   disable"
+        , "* MX    disable"
+        , "* SRV   disable"
+        , "* SOA   disable"
+        ]
 
     getA     = notSupportedBinding
     getAAAA  = notSupportedBinding
