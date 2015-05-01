@@ -6,7 +6,7 @@ description:
     While the standard DNS API is not well implemented here, this library
     provides a simple interface to send special/non-standard queries embedded
     into traditional/standard queries.
-license:             Apache-2
+license:             Apache-2.0
 license-file:        LICENSE
 author:              Nicolas DI PRIMA
 maintainer:          ndiprima@alephcloud.com
