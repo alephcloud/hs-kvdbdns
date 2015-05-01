@@ -1,5 +1,5 @@
 name:                dns-api
-version:             0.2.0.1
+version:             0.2.1
 synopsis:            A simple API to send command over DNS protocol
 description:
     DNS API is an API to easily setup a DNS Server or send DNS queries.
@@ -15,6 +15,15 @@ Homepage:            https://github.com/alephcloud/hs-dns-api
 category:            Network
 build-type:          Simple
 cabal-version:       >=1.10
+
+source-repository head
+    type: git
+    location: https://github.com/alephcloud/hs-dns-api
+
+source-repository this
+    type: git
+    location: https://github.com/alephcloud/hs-dns-api
+    tag: 0.2.1
 
 Flag executable
   Description:       Build the executable
